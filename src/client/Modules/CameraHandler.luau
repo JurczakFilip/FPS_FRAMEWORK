@@ -1,0 +1,3 @@
+local CameraHandler = {}
+
+return CameraHandler

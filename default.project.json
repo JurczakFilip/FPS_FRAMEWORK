@@ -1,0 +1,44 @@
+{
+  "name": "FPS_FRAMEWORK",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "[IRNV_FPS] V1 (REP)": {
+        "$path": "src/shared",
+        "WeaponModels": {
+          "$path": "src/shared/WeaponModels"
+        },
+        "WeaponConfig": {
+          "$path": "src/shared/WeaponConfig"
+        },
+        "WeaponEffects": {
+          "$path": "src/shared/WeaponEffects",
+          "SoundEffects": {
+            "$path": "src/shared/WeaponEffects/SoundEffects"
+          },
+          "VisualEffects": {
+            "$path": "src/shared/WeaponEffects/VisualEffects"
+          }
+        }
+      }
+    },
+
+    "ServerScriptService": {
+      "[IRNV_FPS] V1 (SERV)": {
+        "$path": "src/server"
+      }
+    },
+
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "[IRNV_FPS] V1 (CLI)": {
+          "$path": "src/client",
+          "Modules": {
+            "$path": "src/client/Modules"
+          }
+        }
+      }
+    }
+  }
+}
