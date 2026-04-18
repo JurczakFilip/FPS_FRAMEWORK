@@ -20,6 +20,15 @@
           "VisualEffects": {
             "$path": "src/shared/WeaponEffects/VisualEffects"
           }
+        },
+        "Viewmodel": {
+          "$path": "src/shared/Viewmodel",
+          "Arms": {
+            "$path": "src/shared/Viewmodel/Arms"
+          },
+          "Accessories": {
+            "$path": "src/shared/Viewmodel/Accessories"
+          }
         }
       }
     },
