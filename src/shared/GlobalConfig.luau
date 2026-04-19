@@ -8,6 +8,8 @@ GlobalConfig.CameraHandler = {
     MOUSE_SENSITIVITY     = 0.30        , -- degrees per pixel
     PITCH_LIMIT           = math.rad(80), -- max up/down look angle
     BODY_ROTATE_THRESHOLD = math.rad(5) , -- how far camera can lead before character turns
+    STRAFE_ROLL           = math.rad(4) , -- peak camera roll when strafing at full walkspeed
+    STRAFE_ROLL_LERP      = 8           , -- higher = snappier roll response
 }
 
 GlobalConfig.MotionBlur = {

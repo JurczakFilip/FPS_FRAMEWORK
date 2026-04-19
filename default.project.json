@@ -34,6 +34,9 @@
             "$path": "src/client/Modules"
           }
         }
+      },
+      "StarterCharacterScripts": {
+        "$path": "src/character"
       }
     }
   }

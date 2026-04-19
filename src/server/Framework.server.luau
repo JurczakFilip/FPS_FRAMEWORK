@@ -15,6 +15,7 @@ local Framework = {
 
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
+        print("Sent Player: "..player.Name.." Test Inv: ", Framework.Test_Inventory)
         ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):WaitForChild("LoadWeapon"):FireClient(player, Framework.Test_Inventory)
     end)
 end)

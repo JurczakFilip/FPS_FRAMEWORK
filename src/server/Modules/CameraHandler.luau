@@ -27,6 +27,7 @@ end
 local function clearBaseC0(character)
     local head       = character:FindFirstChild("Head")
     local upperTorso = character:FindFirstChild("UpperTorso")
+    local hrp        = character:FindFirstChild("HumanoidRootPart")
     if head then
         local neck = head:FindFirstChild("Neck")
         if neck then neck:SetAttribute("BaseC0", nil) end
@@ -34,6 +35,10 @@ local function clearBaseC0(character)
     if upperTorso then
         local waist = upperTorso:FindFirstChild("Waist")
         if waist then waist:SetAttribute("BaseC0", nil) end
+    end
+    if hrp then
+        local rootJoint = hrp:FindFirstChild("RootJoint")
+        if rootJoint then rootJoint:SetAttribute("BaseC0", nil) end
     end
 end
 
@@ -47,12 +52,13 @@ function ServerCameraHandler.Setup()
     -- targetLook[player] = { pitch = number, yaw = number }
     self.targetLook = {}
 
-    -- Receive pitch + relative yaw from clients
-    LookRemote.OnServerEvent:Connect(function(player, pitch, yaw)
+    -- Receive pitch + relative yaw + strafe roll from clients
+    LookRemote.OnServerEvent:Connect(function(player, pitch, yaw, roll)
         if not isValidAngle(pitch) or not isValidAngle(yaw) then return end
         self.targetLook[player] = {
             pitch = math.clamp(pitch, -MAX_PITCH, MAX_PITCH),
             yaw   = math.clamp(yaw, -math.pi, math.pi),
+            roll  = isValidAngle(roll) and math.clamp(roll, -math.pi / 4, math.pi / 4) or 0,
         }
     end)
 
@@ -64,33 +70,42 @@ function ServerCameraHandler.Setup()
             local character = player.Character
             if not character then continue end
 
+            -- Pitch + yaw: Neck (in Head) + Waist (in UpperTorso)
             local head       = character:FindFirstChild("Head")
             local upperTorso = character:FindFirstChild("UpperTorso")
-            if not head or not upperTorso then continue end
+            if head and upperTorso then
+                local neck  = head:FindFirstChild("Neck")
+                local waist = upperTorso:FindFirstChild("Waist")
+                if neck and waist then
+                    local neckBase  = getBaseC0(neck)
+                    local waistBase = getBaseC0(waist)
 
-            local neck  = head:FindFirstChild("Neck")
-            local waist = upperTorso:FindFirstChild("Waist")
-            if not neck or not waist then continue end
+                    local waistGoal = waistBase * CFrame.Angles(look.pitch * WAIST_WEIGHT, 0, 0)
+                    local neckGoal  = neckBase
+                        * CFrame.fromEulerAnglesYXZ(look.pitch * NECK_WEIGHT, look.yaw * NECK_YAW_WEIGHT, 0)
 
-            local neckBase  = getBaseC0(neck)
-            local waistBase = getBaseC0(waist)
+                    neck.C0  = neck.C0:Lerp(neckGoal,  alpha)
+                    waist.C0 = waist.C0:Lerp(waistGoal, alpha)
+                end
+            end
 
-            -- Waist: vertical tilt only
-            local waistGoal = waistBase * CFrame.Angles(look.pitch * WAIST_WEIGHT, 0, 0)
-
-            -- Neck: vertical tilt + horizontal turn (shows full look direction)
-            local neckGoal = neckBase
-                * CFrame.fromEulerAnglesYXZ(look.pitch * NECK_WEIGHT, look.yaw * NECK_YAW_WEIGHT, 0)
-
-            neck.C0  = neck.C0:Lerp(neckGoal,  alpha)
-            waist.C0 = waist.C0:Lerp(waistGoal, alpha)
+            -- Roll: RootJoint (in HumanoidRootPart)
+            local hrp = character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local rootJoint = hrp:FindFirstChild("RootJoint")
+                if rootJoint then
+                    local rootJointBase = getBaseC0(rootJoint)
+                    local rootGoal = rootJointBase * CFrame.Angles(0, 0, look.roll)
+                    rootJoint.C0 = rootJoint.C0:Lerp(rootGoal, alpha)
+                end
+            end
         end
     end)
 
     -- Reset on respawn
     Players.PlayerAdded:Connect(function(player)
         player.CharacterAdded:Connect(function(character)
-            self.targetLook[player] = { pitch = 0, yaw = 0 }
+            self.targetLook[player] = { pitch = 0, yaw = 0, roll = 0 }
             clearBaseC0(character)
         end)
     end)
@@ -98,7 +113,7 @@ function ServerCameraHandler.Setup()
     -- Handle players already in-game when this script runs
     for _, player in ipairs(Players:GetPlayers()) do
         player.CharacterAdded:Connect(function(character)
-            self.targetLook[player] = { pitch = 0, yaw = 0 }
+            self.targetLook[player] = { pitch = 0, yaw = 0, roll = 0 }
             clearBaseC0(character)
         end)
     end

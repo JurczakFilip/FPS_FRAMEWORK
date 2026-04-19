@@ -8,6 +8,8 @@ local LocalPlayer       = Players.LocalPlayer
 local MOUSE_SENSITIVITY     = GlobalConfig.CameraHandler.MOUSE_SENSITIVITY
 local PITCH_LIMIT           = GlobalConfig.CameraHandler.PITCH_LIMIT
 local BODY_ROTATE_THRESHOLD = GlobalConfig.CameraHandler.BODY_ROTATE_THRESHOLD
+local STRAFE_ROLL           = GlobalConfig.CameraHandler.STRAFE_ROLL
+local STRAFE_ROLL_LERP      = GlobalConfig.CameraHandler.STRAFE_ROLL_LERP
 local SEND_RATE             = GlobalConfig.PitchReplication.SEND_RATE
 
 local BLUR_SCALE      = GlobalConfig.MotionBlur.SCALE
@@ -99,6 +101,7 @@ function CameraHandler.Setup()
     local _, ry, _ = hrp.CFrame:ToEulerAnglesYXZ()
     self.CameraYaw   = ry
     self.CameraPitch = 0
+    self.CameraRoll  = 0
 
     self.RenderConnection = RunService.RenderStepped:Connect(function(dt)
         if not (self.Head and self.Head.Parent) then return end
@@ -111,9 +114,21 @@ function CameraHandler.Setup()
             -PITCH_LIMIT, PITCH_LIMIT
         )
 
+        -- Strafe roll
+        local rootPart = self.Character:FindFirstChild("HumanoidRootPart")
+        local targetRoll = 0
+        if rootPart then
+            local humanoid  = self.Character:FindFirstChildOfClass("Humanoid")
+            local walkSpeed = humanoid and math.max(humanoid.WalkSpeed, 1) or 16
+            local localVel  = rootPart.CFrame:VectorToObjectSpace(rootPart.AssemblyLinearVelocity)
+            local strafe    = math.clamp(localVel.X / walkSpeed, -1, 1)
+            targetRoll = -strafe * STRAFE_ROLL
+        end
+        self.CameraRoll = self.CameraRoll + (targetRoll - self.CameraRoll) * math.clamp(dt * STRAFE_ROLL_LERP, 0, 1)
+
         -- Apply camera CFrame
         self.Camera.CFrame = CFrame.new(self.Head.Position)
-            * CFrame.fromEulerAnglesYXZ(self.CameraPitch, self.CameraYaw, 0)
+            * CFrame.fromEulerAnglesYXZ(self.CameraPitch, self.CameraYaw, self.CameraRoll)
 
         -- Motion blur — scale with mouse speed, fade when idle
         local blurTarget = math.min(delta.Magnitude * BLUR_SCALE, BLUR_MAX)
@@ -139,10 +154,10 @@ function CameraHandler.Setup()
             end
         end
 
-        -- Throttled look replication to server (15 Hz) — pitch + relative yaw
+        -- Throttled look replication to server (15 Hz) — pitch + relative yaw + strafe roll
         local now = tick()
         if now - self.LastPitchSendTime >= SEND_RATE then
-            PitchRemote:FireServer(self.CameraPitch, relativeYaw)
+            PitchRemote:FireServer(self.CameraPitch, relativeYaw, self.CameraRoll)
             self.LastPitchSendTime = now
         end
     end)
@@ -163,8 +178,9 @@ function CameraHandler.Setup()
         local _, ry2, _ = newHrp.CFrame:ToEulerAnglesYXZ()
         self.CameraYaw        = ry2
         self.CameraPitch      = 0
+        self.CameraRoll       = 0
         self.LastPitchSendTime = 0
-        PitchRemote:FireServer(0, 0)
+        PitchRemote:FireServer(0, 0, 0)
     end)
 
     return self
