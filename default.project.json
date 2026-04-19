@@ -6,6 +6,17 @@
     "ReplicatedStorage": {
       "[IRNV_FPS] V1 (REP)": {
         "$path": "src/shared",
+        "Remotes": {
+          "$path": "src/shared/Remotes",
+          "CameraHandler": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
+          },
+          "LoadWeapon": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
+          }
+        },
         "WeaponModels": {
           "$path": "src/shared/WeaponModels"
         },
@@ -35,7 +46,10 @@
 
     "ServerScriptService": {
       "[IRNV_FPS] V1 (SERV)": {
-        "$path": "src/server"
+        "$path": "src/server",
+        "Modules": {
+          "$path": "src/server/Modules"
+        }
       }
     },
 
