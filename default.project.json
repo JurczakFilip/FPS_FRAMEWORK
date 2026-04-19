@@ -16,40 +16,13 @@
             "$path": "src/shared/Remotes",
             "$className": "RemoteEvent"
           }
-        },
-        "WeaponModels": {
-          "$path": "src/shared/WeaponModels"
-        },
-        "WeaponConfig": {
-          "$path": "src/shared/WeaponConfig"
-        },
-        "WeaponEffects": {
-          "$path": "src/shared/WeaponEffects",
-          "SoundEffects": {
-            "$path": "src/shared/WeaponEffects/SoundEffects"
-          },
-          "VisualEffects": {
-            "$path": "src/shared/WeaponEffects/VisualEffects"
-          }
-        },
-        "Viewmodel": {
-          "$path": "src/shared/Viewmodel",
-          "Arms": {
-            "$path": "src/shared/Viewmodel/Arms"
-          },
-          "Accessories": {
-            "$path": "src/shared/Viewmodel/Accessories"
-          }
         }
       }
     },
 
     "ServerScriptService": {
       "[IRNV_FPS] V1 (SERV)": {
-        "$path": "src/server",
-        "Modules": {
-          "$path": "src/server/Modules"
-        }
+        "$path": "src/server"
       }
     },
 

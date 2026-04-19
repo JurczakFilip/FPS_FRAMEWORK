@@ -1,5 +1,9 @@
 local GlobalConfig = {}
 
+GlobalConfig.Debug = true
+
+GlobalConfig.Viewmodel = "Default"
+
 GlobalConfig.CameraHandler = {
     MOUSE_SENSITIVITY     = 0.30        , -- degrees per pixel
     PITCH_LIMIT           = math.rad(80), -- max up/down look angle
