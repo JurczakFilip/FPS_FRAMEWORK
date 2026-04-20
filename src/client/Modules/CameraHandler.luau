@@ -78,6 +78,12 @@ end
 function CameraHandler.Setup()
     local self = setmetatable({}, CameraHandler)
 
+    repeat
+        task.wait(3)
+        print("[CAMERA_HANDLER]: Waiting for game to fully load.")
+        print("^ Camera fix (Camera.CameraType: Custom -> Scriptable)")
+    until game:IsLoaded()
+
     self.Camera = workspace.CurrentCamera
     self.Camera.CameraType = Enum.CameraType.Scriptable
 

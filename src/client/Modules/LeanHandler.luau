@@ -57,7 +57,7 @@ RunService:BindToRenderStep("LeanHandler", Enum.RenderPriority.Character.Value +
 
     rootJoint.C0 = rootJoint.C0:Lerp(rootJointC0 * CFrame.Angles(0, 0, -xResultTorso), alpha)
     waist.C0     = waist.C0:Lerp(waistC0 * CFrame.Angles(0, 0, xResultTorso * CFG.WAIST_COUNTER), alpha)
-    neck.C0      = neck.C0:Lerp(neckC0  * CFrame.Angles(0, 0, xResultTorso * (1 - CFG.WAIST_COUNTER)), alpha)
+    neck.C0      = neck.C0:Lerp(neckC0  * CFrame.Angles(0, 0, -xResultTorso * (1 - CFG.WAIST_COUNTER)), alpha)
 
     local hipOffset = CFrame.new(-xResultXZ, 0, 0) * CFrame.Angles(0, -xResult, 0)
     rightHip.C0 = rightHip.C0:Lerp(rightHipC0 * hipOffset, alpha)

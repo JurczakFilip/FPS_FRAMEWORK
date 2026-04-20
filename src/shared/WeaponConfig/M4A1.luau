@@ -6,6 +6,11 @@ Config.RPM            = Vector2.new(700, 900)     -- rounds per minute
 Config.MuzzleVelocity = Vector2.new(880, 910)     -- m/s
 Config.Accuracy       = Vector2.new(2, 4)         -- MOA
 
+Config.GripOffset = {
+    C0 = CFrame.new(0, 1.5, 0) * CFrame.Angles(0, 0, math.rad(-90)),
+    C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0)
+}
+
 --// Recoil (degrees)
 Config.Recoil = {
 	Vertical   = Vector2.new(0.8, 1.6),  -- upward kick per shot
@@ -33,7 +38,7 @@ Config.ReloadTime = 2.1
 
 Config.Animations = {
     FPS = {            -- Animations ran on the character via client.
-        Idle    = 0,      -- Contains AssetId's of animations (Id Number only)
+        Idle    = 133043318825212,      -- Contains AssetId's of animations (Id Number only)
         AimIn   = 0,
         AimOut  = 0,
         Shoot   = 0,
