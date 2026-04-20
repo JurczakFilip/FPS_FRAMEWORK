@@ -18,7 +18,7 @@ local Framework = {
 
     WeaponConfig = nil,
     Viewmodel    = nil,
-    Weaponmodel  = nil
+    WeaponModel  = nil
 }
 
 function DebugPrint(message: string)
@@ -85,10 +85,10 @@ function LoadSlot(Weapon)
     
         Framework.WeaponConfig = nil
 
-    elseif Framework.Weaponmodel then
+    elseif Framework.WeaponModel then
 
-        Framework.Weaponmodel:Destroy()
-        Framework.Weaponmodel = nil
+        Framework.WeaponModel:Destroy()
+        Framework.WeaponModel = nil
     
     end
 
@@ -115,10 +115,10 @@ function LoadSlot(Weapon)
     end
 
     if Weaponmodel_Folder:FindFirstChild(Weapon.WeaponName) then
-        Framework.Weaponmodel = Weaponmodel_Folder:FindFirstChild(Weapon.WeaponName):Clone()
+        Framework.WeaponModel = Weaponmodel_Folder:FindFirstChild(Weapon.WeaponName):Clone()
         DebugPrint("Located WeaponModel and cloned!")
 
-        if not Framework.Weaponmodel.PrimaryPart then
+        if not Framework.WeaponModel.PrimaryPart then
             DebugPrint("Failed to located Weapon Model PrimaryPart.")
         end
     else
@@ -130,21 +130,26 @@ function LoadSlot(Weapon)
 
     DebugPrint("Creating GripMotor6D...")
     local GripMotor6D = Instance.new("Motor6D")
-    GripMotor6D.Name = "GripMotor6D"
+    GripMotor6D.Name = "[CLIENT] GripMotor6D"
 
-    Framework.Weaponmodel.PrimaryPart.Anchored = false
+    Framework.WeaponModel.PrimaryPart.Anchored = false
 
     GripMotor6D.Part0  = Framework.Viewmodel.RightArm
-    GripMotor6D.Part1  = Framework.Weaponmodel.PrimaryPart
+    GripMotor6D.Part1  = Framework.WeaponModel.PrimaryPart
     GripMotor6D.C0     = Framework.WeaponConfig.GripOffset.C0
     GripMotor6D.C1     = Framework.WeaponConfig.GripOffset.C1
     GripMotor6D.Parent = Framework.Viewmodel.RightArm
 
-    Framework.Weaponmodel.Parent = Framework.Viewmodel
+    Framework.WeaponModel.Parent = Framework.Viewmodel
     DebugPrint("Weapon attached via GripMotor6D.")
 
     AnimationPlayer:SetViewmodel(Framework.Viewmodel)
     AnimationPlayer:Play("Idle")
+
+    -- Delete  World view Weapon Model
+    local Character = Players.LocalPlayer.Character
+    local WeaponWorldModel = Character.RightHand:FindFirstChild("[SERVER]_"..Weapon.WeaponName)
+    WeaponWorldModel:Destroy()
 end
 
 local lagRot      = nil -- trails camera rotation for sway
@@ -162,9 +167,13 @@ local TILT_AMOUNT    = 0 -- barrel-up / stock-down pitch at full backward speed
 local TILT_FADE      = 0        -- lerp speed for tilt in/out
 local smoothBackTilt = 0
 
-ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):WaitForChild("LoadWeapon").OnClientEvent:Connect(function(Inventory)
+-- Load Inv
+ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):WaitForChild("LoadInventory").OnClientEvent:Connect(function(Inventory)
     Framework.Inventory = Inventory
-    LoadSlot(Framework.Inventory[1])
+end)
+
+ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):WaitForChild("LoadWeapon").OnClientEvent:Connect(function(Weapon)
+    LoadSlot(Weapon)
 
     TILT_AMOUNT    = Framework.WeaponConfig.TILT_AMOUNT -- barrel-up / stock-down pitch at full backward speed
     TILT_FADE      = Framework.WeaponConfig.TILT_FADE   

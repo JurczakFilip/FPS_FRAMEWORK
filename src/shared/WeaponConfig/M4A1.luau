@@ -11,6 +11,11 @@ Config.GripOffset = {
     C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0)
 }
 
+Config.WorldGripOffset = {
+    C0 = CFrame.new(0, 0.35, 0) * CFrame.Angles(0, math.rad(-90), math.rad(90)),
+    C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0)
+}
+
 --// Recoil (degrees)
 Config.Recoil = {
 	Vertical   = Vector2.new(0.8, 1.6),  -- upward kick per shot
@@ -46,7 +51,7 @@ Config.Animations = {
         Inspect = 0
     },
     World = {          -- Animations ran on the character via server.
-        Idle    = 0,
+        Idle    = 124253007628181,
         AimIn   = 0,
         AimOut  = 0,
         Shoot   = 0,

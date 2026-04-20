@@ -12,6 +12,10 @@
             "$path": "src/shared/Remotes",
             "$className": "RemoteEvent"
           },
+          "LoadInventory": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
+          },
           "LoadWeapon": {
             "$path": "src/shared/Remotes",
             "$className": "RemoteEvent"
