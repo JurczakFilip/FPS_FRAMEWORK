@@ -67,4 +67,16 @@ Config.Effects = {
     Visual = "Rifle"
 }
 
+Config.SWAY_SPEED  = 14
+Config.ROLL_SCALE  = 0.3
+Config.PITCH_SCALE = 0.15
+
+Config.BOB_FREQ       = 9     -- stride rate at full walkspeed (rad/sec)
+Config.BOB_AMPLITUDE  = 0.08  -- max bob offset in studs
+Config.BOB_FADE       = 8     -- how fast bob fades in/out on start/stop
+
+Config.TILT_AMOUNT    = math.rad(5) -- barrel-up / stock-down pitch at full backward speed
+Config.TILT_FADE      = 6            -- lerp speed for tilt in/out
+
+
 return Config

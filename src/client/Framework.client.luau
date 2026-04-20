@@ -16,9 +16,9 @@ local CameraHandler = Modules.CameraHandler.Setup()
 local Framework = {
     Inventory = nil,
 
-    Config      = nil,
-    Viewmodel   = nil,
-    Weaponmodel = nil
+    WeaponConfig = nil,
+    Viewmodel    = nil,
+    Weaponmodel  = nil
 }
 
 function DebugPrint(message: string)
@@ -81,7 +81,7 @@ function LoadSlot(Weapon)
         Framework.Viewmodel:Destroy()
         Framework.Viewmodel = nil
 
-    elseif Framework.Config then
+    elseif Framework.WeaponConfig then
     
         Framework.WeaponConfig = nil
 
@@ -147,25 +147,77 @@ function LoadSlot(Weapon)
     AnimationPlayer:Play("Idle")
 end
 
+local lagRot      = nil -- trails camera rotation for sway
+local SWAY_SPEED  = 0
+local ROLL_SCALE  = 0
+local PITCH_SCALE = 0
+
+local BOB_FREQ       = 0     -- stride rate at full walkspeed (rad/sec)
+local BOB_AMPLITUDE  = 0  -- max bob offset in studs
+local BOB_FADE       = 0     -- how fast bob fades in/out on start/stop
+local bobClock       = 0
+local smoothMoveFact = 0
+
+local TILT_AMOUNT    = 0 -- barrel-up / stock-down pitch at full backward speed
+local TILT_FADE      = 0        -- lerp speed for tilt in/out
+local smoothBackTilt = 0
+
 ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):WaitForChild("LoadWeapon").OnClientEvent:Connect(function(Inventory)
     Framework.Inventory = Inventory
     LoadSlot(Framework.Inventory[1])
+
+    TILT_AMOUNT    = Framework.WeaponConfig.TILT_AMOUNT -- barrel-up / stock-down pitch at full backward speed
+    TILT_FADE      = Framework.WeaponConfig.TILT_FADE   
+    BOB_FREQ       = Framework.WeaponConfig.BOB_FREQ     -- stride rate at full walkspeed (rad/sec)
+    BOB_AMPLITUDE  = Framework.WeaponConfig.BOB_AMPLITUDE  -- max bob offset in studs
+    BOB_FADE       = Framework.WeaponConfig.BOB_FADE   
+    SWAY_SPEED     = Framework.WeaponConfig.SWAY_SPEED
+    ROLL_SCALE     = Framework.WeaponConfig.ROLL_SCALE
+    PITCH_SCALE    = Framework.WeaponConfig.PITCH_SCALE
 end)
 
 -- Run after Roblox's Camera/Character pass so our LocalTransparencyModifier reset
 -- overrides the engine's first-person auto-hide on Camera descendants.
+RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value + 1, function(dt)
+    local camRot = Camera.CFrame - Camera.CFrame.Position
 
-local smoothCamPos = nil
+    if not lagRot then lagRot = camRot end
+    lagRot = lagRot:Lerp(camRot, 1 - math.exp(-SWAY_SPEED * dt))
 
-RunService.RenderStepped:Connect(function(dt)
-    if not smoothCamPos then smoothCamPos = Camera.CFrame.Position end
-    smoothCamPos = smoothCamPos:Lerp(Camera.CFrame.Position, 1 - math.exp(-25 * dt))
+    local swayOffset = camRot:Inverse() * lagRot
+    local rx, ry, _  = swayOffset:ToEulerAnglesYXZ()
+    local swayCF     = CFrame.Angles(rx * PITCH_SCALE, 0, -ry * ROLL_SCALE)
 
-    local smoothedCamCF = CFrame.new(smoothCamPos) * (Camera.CFrame - Camera.CFrame.Position)
+    -- Movement state shared by bob + backward tilt
+    local char        = Players.LocalPlayer.Character
+    local hrp         = char and char:FindFirstChild("HumanoidRootPart")
+    local humanoid    = char and char:FindFirstChildOfClass("Humanoid")
+    local grounded    = hrp and humanoid and humanoid.FloorMaterial ~= Enum.Material.Air
+    local walkSpd     = humanoid and math.max(humanoid.WalkSpeed, 1) or 16
+    local camLocalVel = Vector3.zero
+    if grounded then
+        camLocalVel = Camera.CFrame:VectorToObjectSpace(hrp.AssemblyLinearVelocity)
+    end
+
+    -- Bob: sine on X (sway) + double-freq on Y (steps), scaled by horizontal speed
+    local horizMag   = (camLocalVel * Vector3.new(1, 0, 1)).Magnitude
+    local targetFact = grounded and math.clamp(horizMag / walkSpd, 0, 1) or 0
+    smoothMoveFact = smoothMoveFact + (targetFact - smoothMoveFact) * (1 - math.exp(-BOB_FADE * dt))
+
+    bobClock = bobClock + dt * BOB_FREQ * smoothMoveFact
+    local bobX = math.sin(bobClock)     * BOB_AMPLITUDE * smoothMoveFact
+    local bobY = math.sin(bobClock * 2) * BOB_AMPLITUDE * smoothMoveFact
+    local bobCF = CFrame.new(bobX, bobY, 0)
+
+    -- Backward tilt: camera-local +Z is behind the player, so any backward velocity
+    -- component (straight back, back-left, back-right) tilts the gun's muzzle up.
+    local targetBack = grounded and math.clamp(camLocalVel.Z / walkSpd, 0, 1) or 0
+    smoothBackTilt = smoothBackTilt + (targetBack - smoothBackTilt) * (1 - math.exp(-TILT_FADE * dt))
+    local tiltCF = CFrame.Angles(-smoothBackTilt * TILT_AMOUNT, 0, 0)
 
     for _, v in pairs(Camera:GetChildren()) do
         if v:IsA("Model") and v.PrimaryPart then
-            v:PivotTo(smoothedCamCF * GlobalConfig.VIEWMODEL_OFFSET)
+            v:PivotTo(Camera.CFrame * GlobalConfig.VIEWMODEL_OFFSET * swayCF * bobCF * tiltCF)
         end
     end
 end)

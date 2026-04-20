@@ -97,6 +97,12 @@ function CameraHandler.Setup()
 
     self.Character, self.Head = waitForCharacterHead()
     self.LastPitchSendTime    = 0
+    self.LastHeartbeat        = os.clock()
+    self.SmoothHeadPos        = self.Head.Position
+
+    RunService.Heartbeat:Connect(function()
+        self.LastHeartbeat = os.clock()
+    end)
     hideHeadAndAccessories(self.Character)
 
     local hrp      = self.Character:WaitForChild("HumanoidRootPart")
@@ -109,7 +115,7 @@ function CameraHandler.Setup()
     self.CameraPitch = 0
     self.CameraRoll  = 0
 
-    self.RenderConnection = RunService.RenderStepped:Connect(function(dt)
+    RunService:BindToRenderStep("CameraHandlerUpdate", Enum.RenderPriority.Camera.Value, function(dt)
         if not (self.Head and self.Head.Parent) then return end
 
         -- Accumulate mouse delta into yaw/pitch
@@ -132,8 +138,13 @@ function CameraHandler.Setup()
         end
         self.CameraRoll = self.CameraRoll + (targetRoll - self.CameraRoll) * math.clamp(dt * STRAFE_ROLL_LERP, 0, 1)
 
-        -- Apply camera CFrame
-        self.Camera.CFrame = CFrame.new(self.Head.Position)
+        -- Extrapolate head position forward from last physics step, then smooth with
+        -- a fast lerp to absorb velocity noise and animation-driven head motion.
+        local dtSinceStep = math.clamp(os.clock() - self.LastHeartbeat, 0, 1/30)
+        local target      = self.Head.Position + self.Head.AssemblyLinearVelocity * dtSinceStep
+        self.SmoothHeadPos = self.SmoothHeadPos:Lerp(target, 1 - math.exp(-60 * dt))
+
+        self.Camera.CFrame = CFrame.new(self.SmoothHeadPos)
             * CFrame.fromEulerAnglesYXZ(self.CameraPitch, self.CameraYaw, self.CameraRoll)
 
         -- Motion blur — scale with mouse speed, fade when idle
@@ -182,10 +193,12 @@ function CameraHandler.Setup()
         newHumanoid.AutoRotate = false
 
         local _, ry2, _ = newHrp.CFrame:ToEulerAnglesYXZ()
-        self.CameraYaw        = ry2
-        self.CameraPitch      = 0
-        self.CameraRoll       = 0
+        self.CameraYaw         = ry2
+        self.CameraPitch       = 0
+        self.CameraRoll        = 0
         self.LastPitchSendTime = 0
+        self.LastHeartbeat     = os.clock()
+        self.SmoothHeadPos     = self.Head.Position
         PitchRemote:FireServer(0, 0, 0)
     end)
 
