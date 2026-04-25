@@ -16,6 +16,10 @@ local BLUR_SCALE      = GlobalConfig.MotionBlur.SCALE
 local BLUR_MAX        = GlobalConfig.MotionBlur.MAX
 local BLUR_FADE_SPEED = GlobalConfig.MotionBlur.FADE_SPEED
 
+local JOLT_KICK      = GlobalConfig.LandingJolt.KICK
+local JOLT_STIFFNESS = GlobalConfig.LandingJolt.STIFFNESS
+local JOLT_DAMPING   = GlobalConfig.LandingJolt.DAMPING
+
 local IRNVRep    = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)")
 local PitchRemote = IRNVRep:WaitForChild("Remotes"):WaitForChild("CameraHandler")
 
@@ -100,6 +104,11 @@ function CameraHandler.Setup()
     self.LastHeartbeat        = os.clock()
     self.SmoothHeadPos        = self.Head.Position
 
+    self.JoltPitch    = 0
+    self.JoltPitchVel = 0
+    self.JoltPrevGrounded = nil
+    self.JoltAirVertVel   = 0
+
     RunService.Heartbeat:Connect(function()
         self.LastHeartbeat = os.clock()
     end)
@@ -114,6 +123,8 @@ function CameraHandler.Setup()
     self.CameraYaw   = ry
     self.CameraPitch = 0
     self.CameraRoll  = 0
+    self.RecoilPitch = 0
+    self.RecoilYaw   = 0
 
     RunService:BindToRenderStep("CameraHandlerUpdate", Enum.RenderPriority.Camera.Value, function(dt)
         if not (self.Head and self.Head.Parent) then return end
@@ -144,8 +155,26 @@ function CameraHandler.Setup()
         local target      = self.Head.Position + self.Head.AssemblyLinearVelocity * dtSinceStep
         self.SmoothHeadPos = self.SmoothHeadPos:Lerp(target, 1 - math.exp(-60 * dt))
 
+        -- Landing jolt: velocity kick into pitch spring on touchdown
+        local hrpForJolt  = self.Character:FindFirstChild("HumanoidRootPart")
+        local humanoidForJolt = self.Character:FindFirstChildOfClass("Humanoid")
+        local joltGrounded = hrpForJolt and humanoidForJolt
+            and humanoidForJolt.FloorMaterial ~= Enum.Material.Air
+        local joltVertVel  = hrpForJolt and hrpForJolt.AssemblyLinearVelocity.Y or 0
+
+        if self.JoltPrevGrounded == false and joltGrounded then
+            local impactMag = math.clamp(-self.JoltAirVertVel / 50, 0, 1)
+            self.JoltPitchVel = self.JoltPitchVel + impactMag * JOLT_KICK
+        end
+        if not joltGrounded then self.JoltAirVertVel = joltVertVel end
+
+        local joltAcc     = -JOLT_STIFFNESS * self.JoltPitch - JOLT_DAMPING * self.JoltPitchVel
+        self.JoltPitchVel = self.JoltPitchVel + joltAcc * dt
+        self.JoltPitch    = self.JoltPitch    + self.JoltPitchVel * dt
+        self.JoltPrevGrounded = joltGrounded
+
         self.Camera.CFrame = CFrame.new(self.SmoothHeadPos)
-            * CFrame.fromEulerAnglesYXZ(self.CameraPitch, self.CameraYaw, self.CameraRoll)
+            * CFrame.fromEulerAnglesYXZ(self.CameraPitch + self.RecoilPitch + self.JoltPitch, self.CameraYaw + self.RecoilYaw, self.CameraRoll)
 
         -- Motion blur — scale with mouse speed, fade when idle
         local blurTarget = math.min(delta.Magnitude * BLUR_SCALE, BLUR_MAX)
@@ -196,9 +225,15 @@ function CameraHandler.Setup()
         self.CameraYaw         = ry2
         self.CameraPitch       = 0
         self.CameraRoll        = 0
+        self.RecoilPitch       = 0
+        self.RecoilYaw         = 0
         self.LastPitchSendTime = 0
         self.LastHeartbeat     = os.clock()
         self.SmoothHeadPos     = self.Head.Position
+        self.JoltPitch         = 0
+        self.JoltPitchVel      = 0
+        self.JoltPrevGrounded  = nil
+        self.JoltAirVertVel    = 0
         PitchRemote:FireServer(0, 0, 0)
     end)
 

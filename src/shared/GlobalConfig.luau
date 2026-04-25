@@ -2,8 +2,8 @@ local GlobalConfig = {}
 
 GlobalConfig.Debug = true
 
-GlobalConfig.Viewmodel = "Default"
-GlobalConfig.VIEWMODEL_OFFSET = CFrame.new(0, 0, 2)
+GlobalConfig.Viewmodel = "Desert"
+GlobalConfig.VIEWMODEL_OFFSET = CFrame.new(0, 0, 1)
 
 GlobalConfig.CameraHandler = {
     MOUSE_SENSITIVITY     = 0.30        , -- degrees per pixel
@@ -29,10 +29,19 @@ GlobalConfig.PitchReplication = {
 }
 
 
+GlobalConfig.LandingJolt = {
+    KICK      = math.rad(25), -- peak downward pitch kick at terminal fall speed
+    STIFFNESS = 160,
+    DAMPING   = 18,
+}
+
 GlobalConfig.LeanHandler = {
     RANGE_OF_MOTION = 75,    -- max strafe lean angle for hips/body (degrees)
     LERP_SPEED      = 0.005, -- interpolation speed — lower = smoother but slower to respond
     WAIST_COUNTER   = 0.5,   -- fraction of body roll absorbed by Waist (0 = R6-style neck-only, 1 = upper body fully upright)
 }
+
+GlobalConfig.FireModeSwitchSound = 72425104284712
+GlobalConfig.EmptyMagSound = 132417837934974
 
 return GlobalConfig

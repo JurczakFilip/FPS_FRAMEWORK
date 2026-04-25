@@ -19,6 +19,22 @@
           "LoadWeapon": {
             "$path": "src/shared/Remotes",
             "$className": "RemoteEvent"
+          },
+          "PT_ACTION": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
+          },
+          "Shoot": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
+          },
+          "TracerVisual": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
+          },
+          "Reload": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
           }
         }
       }
