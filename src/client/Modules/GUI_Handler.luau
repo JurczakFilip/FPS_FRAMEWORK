@@ -1,6 +1,10 @@
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService") 
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local ScreenGui = Players.LocalPlayer.PlayerGui
+
+local BAR_TWEEN_INFO    = TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local RELOAD_TWEEN_INFO = TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
 -------------------Setup
 local Gui = {}
@@ -34,13 +38,22 @@ function Gui:SetupAmmo()
     WeaponLabel.TextSize               = 18
     WeaponLabel.Name                   = "WeaponLabel"
     
+    local FireModeLabel                = Instance.fromExisting(WeaponLabel)
+    FireModeLabel.Parent               = AmmoFrame
+    FireModeLabel.Name                 = "FireMode_Label"
+    FireModeLabel.AnchorPoint          = Vector2.new(1,0)
+    FireModeLabel.Position             = UDim2.new(0.95,0,0,5)
+    FireModeLabel.Size                 = UDim2.new(0.4, 0,0, 18)
+    FireModeLabel.TextXAlignment       = Enum.TextXAlignment.Right
+    FireModeLabel.Text                 = "Semi" -- Semi, Auto, Burst
+
     local AmmoLabel                    = Instance.fromExisting(WeaponLabel)
     AmmoLabel.Parent                   = AmmoFrame
     AmmoLabel.Name                     = "Ammo_Label"
     AmmoLabel.AnchorPoint              = Vector2.new(.5,0)
-    AmmoLabel.Position                 = UDim2.new(.5,0,0,25)
-    AmmoLabel.Size                     = UDim2.new(1, 0,0,25)
-    AmmoLabel.TextSize                 = 25
+    AmmoLabel.Position                 = UDim2.new(.5,0,0,20)
+    AmmoLabel.Size                     = UDim2.new(1, 0,0,30)
+    AmmoLabel.TextSize                 = 30
     AmmoLabel.TextXAlignment           = Enum.TextXAlignment.Center
     AmmoLabel.Text                     = "30/60"
 
@@ -56,18 +69,82 @@ function Gui:SetupAmmo()
     AmmoBar.BackgroundColor3           = Color3.new(1,1,1)
     AmmoBar.Name                       = "AmmoBar"
 
-    return AmmoFrame, WeaponLabel, AmmoBar
+    return AmmoFrame, WeaponLabel, AmmoBar, AmmoLabel, FireModeLabel
+end
+
+function Gui:_tweenBar(current: number, maxMag: number)
+    local fill = (maxMag > 0) and math.clamp(current / maxMag, 0, 1) or 0
+    if self._barTween then self._barTween:Cancel() end
+    self._barTween = TweenService:Create(
+        self.AMMO_GUI.AmmoBar,
+        BAR_TWEEN_INFO,
+        { Size = UDim2.new(fill, 0, 0, 2) }
+    )
+    self._barTween:Play()
+end
+
+function Gui:_cancelTextTween()
+    if self._textTween then self._textTween:Cancel() self._textTween = nil end
+    if self._textConn  then self._textConn:Disconnect() self._textConn = nil end
+    if self._textProxy then self._textProxy:Destroy() self._textProxy = nil end
+end
+
+function Gui:UpdateAmmo(current: number, reserve: number, maxMag: number)
+    self:_cancelTextTween()
+    self.AMMO_GUI.AmmoLabel.Text = string.format("%d / %d", current, reserve)
+    self:_tweenBar(current, maxMag)
+    self._lastCurrent = current
+    self._lastReserve = reserve
+end
+
+function Gui:TweenReload(current: number, reserve: number, maxMag: number)
+    local fromCurrent = self._lastCurrent or 0
+    local fromReserve = self._lastReserve or 0
+
+    self:_cancelTextTween()
+    self:_tweenBar(current, maxMag)
+
+    local proxy = Instance.new("NumberValue")
+    proxy.Value = 0
+    self._textProxy = proxy
+
+    local label = self.AMMO_GUI.AmmoLabel
+    self._textConn = proxy:GetPropertyChangedSignal("Value"):Connect(function()
+        local a   = proxy.Value
+        local cur = math.floor(fromCurrent + (current - fromCurrent) * a + 0.5)
+        local res = math.floor(fromReserve + (reserve - fromReserve) * a + 0.5)
+        label.Text = string.format("%d / %d", cur, res)
+    end)
+
+    local tween = TweenService:Create(proxy, RELOAD_TWEEN_INFO, { Value = 1 })
+    self._textTween = tween
+    tween.Completed:Connect(function()
+        if self._textProxy == proxy then
+            self:_cancelTextTween()
+            label.Text = string.format("%d / %d", current, reserve)
+        end
+    end)
+    tween:Play()
+
+    self._lastCurrent = current
+    self._lastReserve = reserve
+end
+
+function Gui:SetFireMode(mode: string)
+    self.AMMO_GUI.FireModeLabel.Text = mode
 end
 
 --Initialisation.
 function Gui.Init()
     local self = setmetatable({}, Gui)
-    local AmmoFrame, WeaponLabel, AmmoBar = Gui:SetupAmmo()
+    local AmmoFrame, WeaponLabel, AmmoBar, AmmoLabel, FireModeLabel = Gui:SetupAmmo()
 
     self.AMMO_GUI = {
-        AmmoFrame   = AmmoFrame,
-        WeaponLabel = WeaponLabel,
-        AmmoBar     = AmmoBar
+        AmmoFrame     = AmmoFrame,
+        WeaponLabel   = WeaponLabel,
+        AmmoBar       = AmmoBar,
+        AmmoLabel     = AmmoLabel,
+        FireModeLabel = FireModeLabel,
     }
 
     return self

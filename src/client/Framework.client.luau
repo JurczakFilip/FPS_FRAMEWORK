@@ -3,6 +3,20 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 
+local LocalPlayer = Players.LocalPlayer
+
+local PRELOAD_FOLDER  = Instance.new("Folder")
+PRELOAD_FOLDER.Name   = "[IRNV_FPS] Preload"
+PRELOAD_FOLDER.Parent = LocalPlayer
+
+local ANIM_FOLDER   = Instance.new("Folder")
+ANIM_FOLDER.Name    = "Animations"
+ANIM_FOLDER.Parent  = PRELOAD_FOLDER
+
+local SOUND_FOLDER  = Instance.new("Folder")
+SOUND_FOLDER.Name   = "Sounds"
+SOUND_FOLDER.Parent = PRELOAD_FOLDER
+
 local GlobalConfig = require(ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("GlobalConfig"))
 
 local Camera  = workspace.CurrentCamera
@@ -18,12 +32,13 @@ local CameraHandler = Modules.CameraHandler.Setup()
 local GUIHandler    = Modules.GUI_Handler.Init()
 
 local Framework = {
-    Inventory   = nil,
-    WeaponConfig = nil,
-    Viewmodel    = nil,
-    WeaponModel  = nil,
-    AimPart      = nil,
-    MuzzlePart   = nil,
+    Inventory     = nil,
+    WeaponConfig  = nil,
+    Viewmodel     = nil,
+    WeaponModel   = nil,
+    AimPart       = nil,
+    MuzzlePart    = nil,
+    MuzzleEffects = nil,
 }
 
 function DebugPrint(message: string)
@@ -44,37 +59,44 @@ function ToggleArmTransparency(TransparencyValue: number)
 end
 
 local AnimationPlayer = {
-    _animator    = nil,
-    _track       = nil,
-    _chainToken  = 0,
+    _animator   = nil,
+    _tracks     = {},
+    _track      = nil,
+    _chainToken = 0,
+    _chainConn  = nil,
 }
 
-function AnimationPlayer:SetViewmodel(viewmodel)
-    self._animator   = viewmodel.Humanoid.Animator
-    if not self._animator then
-        DebugPrint("AnimationPlayer: no Animator found on viewmodel.")
+function AnimationPlayer:Preload(viewmodel, weaponConfig)
+    self._animator = viewmodel.Humanoid.Animator
+    self._tracks   = {}
+    self._track    = nil
+    ANIM_FOLDER:ClearAllChildren()
+    for animType, animId in pairs(weaponConfig.Animations.FPS) do
+        if animId and animId ~= 0 then
+            local anim = Instance.new("Animation")
+            anim.Name        = animType
+            anim.AnimationId = "rbxassetid://" .. animId
+            anim.Parent      = ANIM_FOLDER
+            self._tracks[animType] = self._animator:LoadAnimation(anim)
+        end
     end
 end
 
-function AnimationPlayer:Play(AnimationType: string)
-    if not self._animator or not Framework.WeaponConfig then return end
-    local animId = Framework.WeaponConfig.Animations.FPS[AnimationType]
-    if not animId or animId == 0 then
-        DebugPrint("AnimationPlayer: no valid AnimationId for '"..AnimationType.."'")
+function AnimationPlayer:Play(animType: string)
+    local track = self._tracks[animType]
+    if not track then
+        DebugPrint("AnimationPlayer: no preloaded track for '" .. animType .. "'")
         return
     end
-    self._chainToken += 1 -- cancel any pending PlayThen chain
-    if self._track then self._track:Stop() end
-    local anim = Instance.new("Animation")
-    anim.AnimationId = "rbxassetid://" .. animId
-    self._track = self._animator:LoadAnimation(anim)
-    anim:Destroy()
-    self._track:Play()
-    DebugPrint("AnimationPlayer: playing '"..AnimationType.."'")
+    self._chainToken += 1
+    if self._chainConn then self._chainConn:Disconnect() self._chainConn = nil end
+    if self._track and self._track ~= track then self._track:Stop() end
+    track:Stop()
+    self._track = track
+    track:Play()
+    DebugPrint("AnimationPlayer: playing '" .. animType .. "'")
 end
 
--- Plays animType, then plays nextAnimType once it finishes naturally.
--- Cancelled automatically if any other animation is requested first.
 function AnimationPlayer:PlayThen(animType: string, nextAnimType: string)
     self:Play(animType)
     local track = self._track
@@ -82,7 +104,8 @@ function AnimationPlayer:PlayThen(animType: string, nextAnimType: string)
     track.Looped = false
     self._chainToken += 1
     local token = self._chainToken
-    track.Stopped:Once(function()
+    self._chainConn = track.Stopped:Connect(function()
+        if self._chainConn then self._chainConn:Disconnect() self._chainConn = nil end
         if self._chainToken == token then
             self:Play(nextAnimType)
         end
@@ -90,10 +113,93 @@ function AnimationPlayer:PlayThen(animType: string, nextAnimType: string)
 end
 
 function AnimationPlayer:Stop()
+    self._chainToken += 1
+    if self._chainConn then self._chainConn:Disconnect() self._chainConn = nil end
     if self._track then
         self._track:Stop()
         self._track = nil
     end
+end
+
+local MuzzleEffectsFolder = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponEffects"):WaitForChild("Visual"):WaitForChild("Muzzle")
+local MUZZLE_FLASH_DURATION = 0.05
+
+local function isToggleableEffect(inst: Instance): boolean
+    return inst:IsA("ParticleEmitter") or inst:IsA("Light") or inst:IsA("Beam") or inst:IsA("Trail")
+end
+
+local function cloneMuzzleEffectsInto(muzzlePart: BasePart?, visualName: string?)
+    if not muzzlePart or not visualName then return {} end
+    local template = MuzzleEffectsFolder:FindFirstChild(visualName)
+    if not template then
+        DebugPrint("No muzzle effects template for visual: " .. tostring(visualName))
+        return {}
+    end
+    local effects = {}
+    for _, fx in ipairs(template:GetChildren()) do
+        local clone = fx:Clone()
+        clone.Parent = muzzlePart
+        if isToggleableEffect(clone) then
+            clone.Enabled = false
+        end
+        table.insert(effects, clone)
+    end
+    return effects
+end
+
+local function flashMuzzleEffects(effects)
+    if not effects or #effects == 0 then return end
+    for _, fx in ipairs(effects) do
+        if isToggleableEffect(fx) then fx.Enabled = true end
+    end
+    task.delay(MUZZLE_FLASH_DURATION, function()
+        for _, fx in ipairs(effects) do
+            if fx.Parent and isToggleableEffect(fx) then
+                fx.Enabled = false
+            end
+        end
+    end)
+end
+
+-- World-model muzzle effects for OTHER players (lazy-cloned on first observed shot).
+local _worldMuzzleCache = {}
+
+local function getOrCreateWorldMuzzleEffects(shooterChar: Model)
+    local rightHand = shooterChar and shooterChar:FindFirstChild("RightHand")
+    if not rightHand then return nil end
+
+    local worldModel
+    for _, child in ipairs(rightHand:GetChildren()) do
+        if child.Name:sub(1, 9) == "[SERVER]_" then
+            worldModel = child
+            break
+        end
+    end
+    if not worldModel then return nil end
+
+    local muzzle = worldModel:FindFirstChild("MuzzlePart", true)
+    if not muzzle then return nil end
+
+    local cached = _worldMuzzleCache[muzzle]
+    if cached then return cached end
+
+    local weaponName = worldModel.Name:sub(10) -- strip "[SERVER]_"
+    local cfgFolder  = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponConfig")
+    local cfgModule  = cfgFolder:FindFirstChild(weaponName)
+    if not cfgModule then return nil end
+
+    local ok, cfg = pcall(require, cfgModule)
+    if not ok or type(cfg) ~= "table" then return nil end
+
+    local visualName = cfg.Effects and cfg.Effects.Visual
+    if not visualName then return nil end
+
+    local effects = cloneMuzzleEffectsInto(muzzle, visualName)
+    _worldMuzzleCache[muzzle] = effects
+    muzzle.Destroying:Connect(function()
+        _worldMuzzleCache[muzzle] = nil
+    end)
+    return effects
 end
 
 function LoadSlot(Weapon)
@@ -166,32 +272,34 @@ function LoadSlot(Weapon)
     Framework.WeaponModel.Parent = Framework.Viewmodel
     DebugPrint("Weapon attached via GripMotor6D.")
 
-    Framework.AimPart   = Framework.WeaponModel:FindFirstChild("AimPart",   true)
+    Framework.AimPart    = Framework.WeaponModel:FindFirstChild("AimPart",    true)
     Framework.MuzzlePart = Framework.WeaponModel:FindFirstChild("MuzzlePart", true)
     DebugPrint(Framework.AimPart    and "AimPart found."    or "No AimPart — ADS disabled.")
     DebugPrint(Framework.MuzzlePart and "MuzzlePart found." or "No MuzzlePart — tracer starts from camera.")
 
-    AnimationPlayer:SetViewmodel(Framework.Viewmodel)
+    local visualName = Framework.WeaponConfig.Effects and Framework.WeaponConfig.Effects.Visual
+    Framework.MuzzleEffects = cloneMuzzleEffectsInto(Framework.MuzzlePart, visualName)
+
+    AnimationPlayer:Preload(Framework.Viewmodel, Framework.WeaponConfig)
+    preloadWeaponSounds(Framework.WeaponConfig)
     AnimationPlayer:Play("Idle")
     initFireMode()
 
-    -- Delete  World view Weapon Model
+    -- Delete World view Weapon Model
     local Character = Players.LocalPlayer.Character
     local WeaponWorldModel = Character.RightHand:FindFirstChild("[SERVER]_"..Weapon.WeaponName)
     WeaponWorldModel:Destroy()
 
-    --PLAY ALL ANIMS TO REMOVE LOADING TIME LATER ON
-    task.wait(.125)
-    AnimationPlayer:PlayThen("AimIn", "Aiming")
-    task.wait(.125)
-    AnimationPlayer:PlayThen("AimOut", "Idle")
+    -- Load GUI
+    GUIHandler.AMMO_GUI.WeaponLabel.Text  = Weapon.WeaponName
+    GUIHandler.AMMO_GUI.AmmoFrame.Visible = true
 end
 
 local IRNVRemotes     = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes")
 local ShootRemote     = IRNVRemotes:WaitForChild("Shoot")
 local PT_ACTIONRemote = IRNVRemotes:WaitForChild("PT_ACTION")
 local TracerRemote    = IRNVRemotes:WaitForChild("TracerVisual")
-local BulletTemplate  = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Bullet")
+local TracersFolder   = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponEffects"):WaitForChild("Visual"):WaitForChild("Tracers")
 local ReloadRemote    = IRNVRemotes:WaitForChild("Reload")
 
 local isAiming          = false
@@ -217,19 +325,55 @@ function initFireMode()
     for _, mode in ipairs(FIRE_MODE_ORDER) do
         if Framework.WeaponConfig.FireModes[mode] then
             currentFireMode = mode
+            GUIHandler:SetFireMode(mode)
             return
         end
     end
 end
 
-local function playSound(soundId: number)
-    if not soundId or soundId == 0 then return end
-    local sound = Instance.new("Sound")
-    sound.SoundId = "rbxassetid://" .. soundId
-    sound.Parent  = Camera
+local _soundTemplates = {}
+
+local function preloadGlobalSounds()
+    local function add(key, id)
+        if not id or id == 0 then return end
+        local sound = Instance.new("Sound")
+        sound.Name    = key
+        sound.SoundId = "rbxassetid://" .. id
+        sound.Parent  = SOUND_FOLDER
+        _soundTemplates[key] = sound
+    end
+    add("Global_FireModeSwitch", GlobalConfig.FireModeSwitchSound)
+    add("Global_EmptyMag",       GlobalConfig.EmptyMagSound)
+end
+
+function preloadWeaponSounds(cfg)
+    for key, sound in pairs(_soundTemplates) do
+        if not key:match("^Global_") then
+            sound:Destroy()
+            _soundTemplates[key] = nil
+        end
+    end
+    for soundType, soundId in pairs(cfg.Effects.Sound) do
+        if soundId and soundId ~= 0 then
+            local sound = Instance.new("Sound")
+            sound.Name    = soundType
+            sound.SoundId = "rbxassetid://" .. soundId
+            sound.Parent  = SOUND_FOLDER
+            _soundTemplates[soundType] = sound
+        end
+    end
+end
+
+local function playSound(key: string)
+    local template = _soundTemplates[key]
+    if not template then return end
+    local sound  = template:Clone()
+    sound.Parent = Camera
     sound:Play()
     sound.Ended:Once(function() sound:Destroy() end)
 end
+
+preloadGlobalSounds()
 
 local function cycleFireMode()
     if not Framework.WeaponConfig then return end
@@ -240,7 +384,8 @@ local function cycleFireMode()
         if Framework.WeaponConfig.FireModes[nextMode] then
             currentFireMode = nextMode
             DebugPrint("Fire mode: " .. currentFireMode)
-            playSound(GlobalConfig.FireModeSwitchSound)
+            playSound("Global_FireModeSwitch")
+            GUIHandler:SetFireMode(nextMode)
             return
         end
     end
@@ -285,11 +430,23 @@ local function runBulletVisual(origin: Vector3, direction: Vector3, speed: numbe
 
     if #waypoints < 2 then return end
 
+    local visualName  = Framework.WeaponConfig and Framework.WeaponConfig.Effects and Framework.WeaponConfig.Effects.Visual
+    local tracerModel = visualName and TracersFolder:FindFirstChild(visualName)
+    if not tracerModel then
+        DebugPrint("runBulletVisual: no tracer found for '" .. tostring(visualName) .. "'")
+        return
+    end
+
     local totalTime = times[#times]
 
-    local bullet        = BulletTemplate:Clone()
-    bullet.CFrame       = CFrame.lookAt(waypoints[1], waypoints[2])
-    bullet.Parent       = workspace
+    local bullet  = tracerModel:Clone()
+    local isModel = bullet:IsA("Model")
+    local function setBulletCFrame(cf)
+        if isModel then bullet:PivotTo(cf) else bullet.CFrame = cf end
+    end
+
+    setBulletCFrame(CFrame.lookAt(waypoints[1], waypoints[2]))
+    bullet.Parent = workspace
 
     local startTime  = tick()
     local lastSegIdx = 1
@@ -316,7 +473,7 @@ local function runBulletVisual(origin: Vector3, direction: Vector3, speed: numbe
         local interpPos = segA:Lerp(segB, math.clamp(segT, 0, 1))
         local lookDir   = segB - segA
         if lookDir.Magnitude > 0.001 then
-            bullet.CFrame = CFrame.lookAt(interpPos, interpPos + lookDir)
+            setBulletCFrame(CFrame.lookAt(interpPos, interpPos + lookDir))
         end
     end)
 
@@ -331,6 +488,7 @@ end
 TracerRemote.OnClientEvent:Connect(function(origin: Vector3, direction: Vector3, speed: number, shooterChar)
     local filter = shooterChar and { shooterChar } or {}
     runBulletVisual(origin, direction, speed, filter)
+    flashMuzzleEffects(getOrCreateWorldMuzzleEffects(shooterChar))
 end)
 
 local function reload()
@@ -343,7 +501,7 @@ local function reload()
     isReloading  = true
     reloadToken += 1
     local token  = reloadToken
-    playSound(cfg.Effects.Sound.Reload)
+    playSound("Reload")
     AnimationPlayer:PlayThen("Reload", isAiming and "Aiming" or "Idle")
     ReloadRemote:FireServer()
 
@@ -354,6 +512,7 @@ local function reload()
         currentAmmo  = currentAmmo + given
         reserveAmmo  = reserveAmmo - given
         isReloading  = false
+        GUIHandler:TweenReload(currentAmmo, reserveAmmo, cfg.MaxMag)
     end)
 end
 
@@ -376,6 +535,8 @@ local function fireSingleShot()
     shotCount         = shotCount + 1
     timeSinceLastShot = 0
     currentAmmo -= 1
+    GUIHandler:UpdateAmmo(currentAmmo, reserveAmmo, cfg.MaxMag)
+    flashMuzzleEffects(Framework.MuzzleEffects)
 
     local dir       = Camera.CFrame.LookVector
     local char      = Players.LocalPlayer.Character
@@ -387,7 +548,7 @@ local function fireSingleShot()
     if char then table.insert(filter, char) end
     runBulletVisual(muzzlePos, dir, (cfg.MuzzleVelocity.X + cfg.MuzzleVelocity.Y) / 2, filter)
 
-    playSound(cfg.Effects.Sound.Shoot)
+    playSound("Shoot")
     ShootRemote:FireServer(dir)
     AnimationPlayer:PlayThen("Shoot", isAiming and "Aiming" or "Idle")
 end
@@ -398,7 +559,7 @@ local function tryFire()
     if currentAmmo <= 0 then
         local now = tick()
         if now - lastEmptyMagSoundTime >= 0.5 then
-            playSound(GlobalConfig.EmptyMagSound)
+            playSound("Global_EmptyMag")
             lastEmptyMagSoundTime = now
         end
         return
@@ -432,8 +593,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         end
 
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        if isReloading then return end
         isAiming = true
-        playSound(Framework.WeaponConfig and Framework.WeaponConfig.Effects.Sound.AimIn)
+        playSound("AimIn")
         AnimationPlayer:PlayThen("AimIn", "Aiming")
         PT_ACTIONRemote:FireServer(2)
 
@@ -449,8 +611,9 @@ UserInputService.InputEnded:Connect(function(input)
         isShooting = false
 
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        if isReloading then return end
         isAiming = false
-        playSound(Framework.WeaponConfig and Framework.WeaponConfig.Effects.Sound.AimOut)
+        playSound("AimOut")
         AnimationPlayer:PlayThen("AimOut", "Idle")
         PT_ACTIONRemote:FireServer(1)
     end
@@ -485,6 +648,15 @@ local landSpringVel = 0
 local prevGrounded  = nil
 local airVertVel    = 0
 
+local IK_ENABLED    = false
+local IK_CHECK_DIST = 0
+local IK_MAX_PUSH   = 0
+local IK_MAX_ANGLE  = 0
+local IK_LERP_SPEED = 12
+local ikPushFactor  = 0
+local ikParams      = RaycastParams.new()
+ikParams.FilterType = Enum.RaycastFilterType.Exclude
+
 -- Load Inv
 ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):WaitForChild("LoadInventory").OnClientEvent:Connect(function(Inventory)
     Framework.Inventory = Inventory
@@ -512,6 +684,15 @@ ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):Wa
     currentAmmo  = Framework.WeaponConfig.MaxMag
     reserveAmmo  = Framework.WeaponConfig.ReserveAmmo or 0
     isReloading  = false
+    GUIHandler:UpdateAmmo(currentAmmo, reserveAmmo, Framework.WeaponConfig.MaxMag)
+
+    local ikCfg = Framework.WeaponConfig.IK or {}
+    IK_ENABLED    = ikCfg.Enabled    == true
+    IK_CHECK_DIST = ikCfg.CheckDist  or 0
+    IK_MAX_PUSH   = ikCfg.MaxPush    or 0
+    IK_MAX_ANGLE  = ikCfg.MaxAngle   or 0
+    IK_LERP_SPEED = ikCfg.LerpSpeed  or 12
+    ikPushFactor  = 0
 end)
 
 -- Run after Roblox's Camera/Character pass so our LocalTransparencyModifier reset
@@ -600,15 +781,33 @@ RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value 
     adsAlpha = adsAlpha + (adsTarget - adsAlpha) * (1 - math.exp(-adsSpeed * dt))
     Camera.FieldOfView = baseFOV - adsAlpha * 25
 
+    -- IK wall pushback
+    local ikTarget = 0
+    if IK_ENABLED and IK_CHECK_DIST > 0 then
+        local ikChar = Players.LocalPlayer.Character
+        ikParams.FilterDescendantsInstances = ikChar and { Camera, ikChar } or { Camera }
+        local result = workspace:Raycast(
+            Camera.CFrame.Position,
+            Camera.CFrame.LookVector * IK_CHECK_DIST,
+            ikParams
+        )
+        if result then
+            ikTarget = 1 - math.clamp(result.Distance / IK_CHECK_DIST, 0, 1)
+        end
+    end
+    ikPushFactor = ikPushFactor + (ikTarget - ikPushFactor) * (1 - math.exp(-IK_LERP_SPEED * dt))
+    local pushCF = CFrame.new(0, 0, ikPushFactor * IK_MAX_PUSH)
+                 * CFrame.Angles(-ikPushFactor * IK_MAX_ANGLE, 0, 0)
+
     for _, v in pairs(Camera:GetChildren()) do
         if v:IsA("Model") and v.PrimaryPart then
-            local hipfireCF = Camera.CFrame * GlobalConfig.VIEWMODEL_OFFSET * swayCF * bobCF * tiltCF * fallCF
+            local hipfireCF = Camera.CFrame * pushCF * GlobalConfig.VIEWMODEL_OFFSET * swayCF * bobCF * tiltCF * fallCF
 
             local finalCF = hipfireCF
             if Framework.AimPart and adsAlpha > 0 then
                 -- offset of AimPart from the model pivot (read from last frame — 1-frame stale, imperceptible)
                 local aimOffsetFromPivot = v:GetPivot():Inverse() * Framework.AimPart.CFrame
-                local adsCF = Camera.CFrame * aimOffsetFromPivot:Inverse()
+                local adsCF = Camera.CFrame * pushCF * aimOffsetFromPivot:Inverse()
                 finalCF = hipfireCF:Lerp(adsCF, adsAlpha)
             end
 

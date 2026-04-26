@@ -104,5 +104,14 @@ Config.LAND_KICK      = math.rad(40) -- velocity kick on landing (rad/s, not an 
 Config.LAND_STIFFNESS = 50          -- spring stiffness
 Config.LAND_DAMPING   = 20          -- underdamped for a subtle bounce (critical ≈ 23)
 
+--// Wall-pushback IK
+Config.IK = {
+    Enabled   = true,
+    CheckDist = 4,           -- studs forward from camera to probe
+    MaxPush   = 1.8,           -- studs to retract weapon at full push
+    MaxAngle  = math.rad(25),  -- upward muzzle tilt at full push
+    LerpSpeed = 18,            -- how fast push factor approaches target
+}
+
 
 return Config
