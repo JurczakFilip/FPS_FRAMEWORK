@@ -44,4 +44,6 @@ GlobalConfig.LeanHandler = {
 GlobalConfig.FireModeSwitchSound = 72425104284712
 GlobalConfig.EmptyMagSound = 132417837934974
 
+GlobalConfig.WhizDistance = 6
+
 return GlobalConfig

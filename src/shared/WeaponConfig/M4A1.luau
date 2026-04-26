@@ -82,7 +82,8 @@ Config.Effects = {
         Reload  = 100094814288653,
         Inspect = 0
     },
-    Visual = "Rifle"
+    Visual       = "Rifle",
+    WhizCategory = "Rifle"
 }
 
 Config.SWAY_SPEED  = 14

@@ -139,10 +139,14 @@ Remotes:WaitForChild("Reload").OnServerEvent:Connect(function(player)
     if now - tracked.LastReloadTime < cfg.ReloadTime * 0.9 then return end
     tracked.LastReloadTime = now
 
+    tracked.ReloadToken = (tracked.ReloadToken or 0) + 1
+    local token = tracked.ReloadToken
+
     local nextAnim = tracked.IsAiming and "Aiming" or "Idle"
     AnimationPlayer.PlayThen(tracked, "Reload", nextAnim)
 
     task.delay(cfg.ReloadTime, function()
+        if tracked.ReloadToken ~= token then return end
         local needed = cfg.MaxMag - tracked.CurrentAmmo
         local given  = math.min(needed, tracked.ReserveAmmo)
         tracked.CurrentAmmo = tracked.CurrentAmmo + given
@@ -161,6 +165,12 @@ Remotes:WaitForChild("Shoot").OnServerEvent:Connect(function(player, direction)
     if not tracked or not tracked.WeaponConfig then return end
     if tracked.CurrentAmmo <= 0 then return end
 
+    -- Validate character exists before touching any state
+    local char = player.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
+    if not head then return end
+
     -- Server-side RPM gate (10% tolerance for network jitter)
     local cfg         = tracked.WeaponConfig
     local rpm         = (cfg.RPM.X + cfg.RPM.Y) / 2
@@ -171,24 +181,20 @@ Remotes:WaitForChild("Shoot").OnServerEvent:Connect(function(player, direction)
     tracked.ShotCount    = tracked.ShotCount + 1
     tracked.CurrentAmmo -= 1
 
-    local char = player.Character
-    if not char then return end
-    local head = char:FindFirstChild("Head")
-    if not head then return end
-
     local nextAnim = tracked.IsAiming and "Aiming" or "Idle"
     AnimationPlayer.PlayThen(tracked, "Shoot", nextAnim)
 
     local _, actualDir, bulletSpeed = BulletSystem.Fire(tracked, head.Position, direction)
 
     -- Broadcast tracer to all OTHER clients so they see the bullet
-    local char        = player.Character
     local muzzlePart  = tracked.WeaponModel and tracked.WeaponModel:FindFirstChild("MuzzlePart", true)
     local tracerOrigin = muzzlePart and muzzlePart.CFrame.Position or head.Position
 
+    local whizCategory = cfg.Effects and cfg.Effects.WhizCategory
+    local shootSoundId = cfg.Effects and cfg.Effects.Sound and cfg.Effects.Sound.Shoot
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= player then
-            TracerRemote:FireClient(p, tracerOrigin, actualDir, bulletSpeed, char)
+            TracerRemote:FireClient(p, tracerOrigin, actualDir, bulletSpeed, char, whizCategory, shootSoundId)
         end
     end
 end)

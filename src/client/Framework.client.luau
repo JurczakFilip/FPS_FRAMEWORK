@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -300,6 +301,12 @@ local ShootRemote     = IRNVRemotes:WaitForChild("Shoot")
 local PT_ACTIONRemote = IRNVRemotes:WaitForChild("PT_ACTION")
 local TracerRemote    = IRNVRemotes:WaitForChild("TracerVisual")
 local TracersFolder   = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponEffects"):WaitForChild("Visual"):WaitForChild("Tracers")
+local WeaponEffects   = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponEffects")
+local SoundFolder     = WeaponEffects:WaitForChild("Sound", 5)
+local WhizFolder      = SoundFolder and SoundFolder:WaitForChild("Whiz", 5)
+if not WhizFolder then
+    warn("[IRNV] WeaponEffects.Sound.Whiz folder missing — whiz sounds disabled")
+end
 local ReloadRemote    = IRNVRemotes:WaitForChild("Reload")
 
 local isAiming          = false
@@ -373,6 +380,55 @@ local function playSound(key: string)
     sound.Ended:Once(function() sound:Destroy() end)
 end
 
+local function emitSpatialSound(pos: Vector3, sound: Sound)
+    local part = Instance.new("Part")
+    part.Anchored     = true
+    part.CanCollide   = false
+    part.CanQuery     = false
+    part.CanTouch     = false
+    part.Transparency = 1
+    part.Size         = Vector3.new(0.1, 0.1, 0.1)
+    part.CFrame       = CFrame.new(pos)
+    part.Parent       = workspace
+    sound.Parent = part
+    sound:Play()
+    sound.Ended:Once(function() part:Destroy() end)
+    Debris:AddItem(part, 10)  -- safety net: drop the part even if Ended never fires
+end
+
+local function play3DSoundAt(pos: Vector3, soundId: number?)
+    if not soundId or soundId == 0 then return end
+    local sound  = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. soundId
+    emitSpatialSound(pos, sound)
+end
+
+local function pickRandomWhizSound(category: string?): Sound?
+    if not category or not WhizFolder then return nil end
+    local pool = WhizFolder:FindFirstChild(category)
+    if not pool then
+        DebugPrint("Whiz: no pool for category '" .. tostring(category) .. "'")
+        return nil
+    end
+    local candidates = {}
+    for _, child in ipairs(pool:GetChildren()) do
+        if child:IsA("Sound") then table.insert(candidates, child) end
+    end
+    if #candidates == 0 then
+        DebugPrint("Whiz: pool '" .. category .. "' has no Sound children")
+        return nil
+    end
+    return candidates[math.random(1, #candidates)]:Clone()
+end
+
+local function attachWhizToHost(host: BasePart, category: string?)
+    local sound = pickRandomWhizSound(category)
+    if not sound then return end
+    sound.Parent = host
+    sound:Play()
+    -- Sound auto-cleans when host part is destroyed
+end
+
 preloadGlobalSounds()
 
 local function cycleFireMode()
@@ -396,7 +452,7 @@ end
 local BULLET_GRAVITY = Vector3.new(0, -workspace.Gravity, 0)
 local TRACER_STEP    = 0.05  -- seconds per step, matches BulletSystem
 
-local function runBulletVisual(origin: Vector3, direction: Vector3, speed: number, filterList: {Instance})
+local function runBulletVisual(origin: Vector3, direction: Vector3, speed: number, filterList: {Instance}, whizCategory: string?)
     -- Pre-simulate the full path into time-stamped waypoints
     local waypoints = { origin }
     local times     = { 0 }
@@ -430,17 +486,70 @@ local function runBulletVisual(origin: Vector3, direction: Vector3, speed: numbe
 
     if #waypoints < 2 then return end
 
+    -- Whiz gating: does the bullet path come within WhizDistance of the local player?
+    -- (skip own bullets unless Debug mode is on, so solo testing still produces audio)
+    local localChar = LocalPlayer.Character
+    local isOwnBullet = false
+    for _, inst in ipairs(filterList) do
+        if inst == localChar then
+            isOwnBullet = true
+            break
+        end
+    end
+    local shouldWhiz = false
+    if whizCategory and localChar and (not isOwnBullet or GlobalConfig.Debug) then
+        local hrp = localChar:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local P = hrp.Position
+            for i = 1, #waypoints - 1 do
+                local A    = waypoints[i]
+                local B    = waypoints[i + 1]
+                local AB   = B - A
+                local len2 = AB:Dot(AB)
+                local s    = len2 > 0 and math.clamp((P - A):Dot(AB) / len2, 0, 1) or 0
+                local cp   = A:Lerp(B, s)
+                if (P - cp).Magnitude <= GlobalConfig.WhizDistance then
+                    shouldWhiz = true
+                    break
+                end
+            end
+            if not shouldWhiz then DebugPrint("Whiz: bullet path never within " .. GlobalConfig.WhizDistance .. " studs") end
+        end
+    end
+
     local visualName  = Framework.WeaponConfig and Framework.WeaponConfig.Effects and Framework.WeaponConfig.Effects.Visual
     local tracerModel = visualName and TracersFolder:FindFirstChild(visualName)
-    if not tracerModel then
-        DebugPrint("runBulletVisual: no tracer found for '" .. tostring(visualName) .. "'")
+    if not tracerModel and not shouldWhiz then
+        DebugPrint("runBulletVisual: no tracer for '" .. tostring(visualName) .. "', no whiz needed — skipping")
         return
     end
 
     local totalTime = times[#times]
 
-    local bullet  = tracerModel:Clone()
-    local isModel = bullet:IsA("Model")
+    -- Build bullet host. If tracer model exists, clone it; otherwise spawn an
+    -- invisible host so the whiz Sound still has a Part to ride on.
+    local bullet, isModel
+    if tracerModel then
+        bullet  = tracerModel:Clone()
+        isModel = bullet:IsA("Model")
+    else
+        bullet = Instance.new("Part")
+        bullet.Anchored     = true
+        bullet.CanCollide   = false
+        bullet.CanQuery     = false
+        bullet.CanTouch     = false
+        bullet.Transparency = 1
+        bullet.Size         = Vector3.new(0.1, 0.1, 0.1)
+        isModel = false
+    end
+
+    if shouldWhiz then
+        local soundHost = isModel and bullet.PrimaryPart or bullet
+        if soundHost and soundHost:IsA("BasePart") then
+            attachWhizToHost(soundHost, whizCategory)
+        end
+    end
+
     local function setBulletCFrame(cf)
         if isModel then bullet:PivotTo(cf) else bullet.CFrame = cf end
     end
@@ -485,9 +594,10 @@ end
 
 -- Other players' bullets: exclude the shooter's character so the bullet
 -- doesn't immediately hit their own head at the origin point
-TracerRemote.OnClientEvent:Connect(function(origin: Vector3, direction: Vector3, speed: number, shooterChar)
+TracerRemote.OnClientEvent:Connect(function(origin: Vector3, direction: Vector3, speed: number, shooterChar, whizCategory: string?, shootSoundId: number?)
     local filter = shooterChar and { shooterChar } or {}
-    runBulletVisual(origin, direction, speed, filter)
+    play3DSoundAt(origin, shootSoundId)
+    runBulletVisual(origin, direction, speed, filter, whizCategory)
     flashMuzzleEffects(getOrCreateWorldMuzzleEffects(shooterChar))
 end)
 
@@ -546,7 +656,7 @@ local function fireSingleShot()
     -- Filter: own character + Camera (which holds the viewmodel & weapon model)
     local filter = { Camera }
     if char then table.insert(filter, char) end
-    runBulletVisual(muzzlePos, dir, (cfg.MuzzleVelocity.X + cfg.MuzzleVelocity.Y) / 2, filter)
+    runBulletVisual(muzzlePos, dir, (cfg.MuzzleVelocity.X + cfg.MuzzleVelocity.Y) / 2, filter, cfg.Effects and cfg.Effects.WhizCategory)
 
     playSound("Shoot")
     ShootRemote:FireServer(dir)
