@@ -19,9 +19,13 @@ local BLUR_SCALE      = GlobalConfig.MotionBlur.SCALE
 local BLUR_MAX        = GlobalConfig.MotionBlur.MAX
 local BLUR_FADE_SPEED = GlobalConfig.MotionBlur.FADE_SPEED
 
-local JOLT_KICK      = GlobalConfig.LandingJolt.KICK
-local JOLT_STIFFNESS = GlobalConfig.LandingJolt.STIFFNESS
-local JOLT_DAMPING   = GlobalConfig.LandingJolt.DAMPING
+local JOLT_KICK              = GlobalConfig.LandingJolt.KICK
+local JOLT_STIFFNESS         = GlobalConfig.LandingJolt.STIFFNESS
+local JOLT_DAMPING           = GlobalConfig.LandingJolt.DAMPING
+local JOLT_TERMINAL_DIVISOR  = GlobalConfig.LandingJolt.TERMINAL_VELOCITY_DIVISOR
+
+local HEAD_SMOOTH_RATE       = GlobalConfig.CameraHandler.HEAD_SMOOTH_RATE
+local HEAD_EXTRAPOLATION_CAP = GlobalConfig.CameraHandler.HEAD_EXTRAPOLATION_CAP
 
 local IRNVRep    = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)")
 local PitchRemote = IRNVRep:WaitForChild("Remotes"):WaitForChild("CameraHandler")
@@ -158,9 +162,9 @@ function CameraHandler.Setup()
 
         -- Extrapolate head position forward from last physics step, then smooth with
         -- a fast lerp to absorb velocity noise and animation-driven head motion.
-        local dtSinceStep = math.clamp(os.clock() - self.LastHeartbeat, 0, 1/30)
+        local dtSinceStep = math.clamp(os.clock() - self.LastHeartbeat, 0, HEAD_EXTRAPOLATION_CAP)
         local target      = self.Head.Position + self.Head.AssemblyLinearVelocity * dtSinceStep
-        self.SmoothHeadPos = self.SmoothHeadPos:Lerp(target, 1 - math.exp(-60 * dt))
+        self.SmoothHeadPos = self.SmoothHeadPos:Lerp(target, 1 - math.exp(-HEAD_SMOOTH_RATE * dt))
 
         -- Landing jolt: velocity kick into pitch spring on touchdown
         local hrpForJolt  = self.Character:FindFirstChild("HumanoidRootPart")
@@ -170,7 +174,7 @@ function CameraHandler.Setup()
         local joltVertVel  = hrpForJolt and hrpForJolt.AssemblyLinearVelocity.Y or 0
 
         if self.JoltPrevGrounded == false and joltGrounded then
-            local impactMag = math.clamp(-self.JoltAirVertVel / 50, 0, 1)
+            local impactMag = math.clamp(-self.JoltAirVertVel / JOLT_TERMINAL_DIVISOR, 0, 1)
             self.JoltPitchVel = self.JoltPitchVel + impactMag * JOLT_KICK
         end
         if not joltGrounded then self.JoltAirVertVel = joltVertVel end
