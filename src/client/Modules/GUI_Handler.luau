@@ -13,6 +13,7 @@ Gui.__index = Gui
 local FrameworkGUI = Instance.new("ScreenGui", ScreenGui)
 FrameworkGUI.Name  = "[IRNV_FPS] V1 (GUI)"
 FrameworkGUI.IgnoreGuiInset = true
+FrameworkGUI.ResetOnSpawn   = false
 
 -------------------Ammo Gui
 function Gui:SetupAmmo()

@@ -13,6 +13,12 @@ GlobalConfig.CameraHandler = {
     STRAFE_ROLL_LERP      = 8           , -- higher = snappier roll response
 }
 
+GlobalConfig.AltLook = {
+    KEY          = Enum.KeyCode.LeftAlt,
+    YAW_LIMIT    = math.rad(120), -- max camera offset from locked body yaw
+    RETURN_SPEED = 12,            -- exponential snap speed when ALT released (higher = snappier)
+}
+
 GlobalConfig.MotionBlur = {
     SCALE      = 0.4, -- mouse pixel magnitude → blur size units
     MAX        = 14,  -- maximum BlurEffect.Size (Roblox range: 0–56)

@@ -35,6 +35,10 @@
           "Reload": {
             "$path": "src/shared/Remotes",
             "$className": "RemoteEvent"
+          },
+          "SwitchWeapon": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
           }
         }
       }

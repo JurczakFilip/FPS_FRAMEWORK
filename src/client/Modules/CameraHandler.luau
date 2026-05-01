@@ -12,6 +12,9 @@ local STRAFE_ROLL           = GlobalConfig.CameraHandler.STRAFE_ROLL
 local STRAFE_ROLL_LERP      = GlobalConfig.CameraHandler.STRAFE_ROLL_LERP
 local SEND_RATE             = GlobalConfig.PitchReplication.SEND_RATE
 
+local ALT_YAW_LIMIT = GlobalConfig.AltLook.YAW_LIMIT
+local ALT_RETURN    = GlobalConfig.AltLook.RETURN_SPEED
+
 local BLUR_SCALE      = GlobalConfig.MotionBlur.SCALE
 local BLUR_MAX        = GlobalConfig.MotionBlur.MAX
 local BLUR_FADE_SPEED = GlobalConfig.MotionBlur.FADE_SPEED
@@ -126,6 +129,10 @@ function CameraHandler.Setup()
     self.RecoilPitch = 0
     self.RecoilYaw   = 0
 
+    self.IsAltLook        = false
+    self.LockedBodyYaw    = nil
+    self.AltLookReturning = false
+
     RunService:BindToRenderStep("CameraHandlerUpdate", Enum.RenderPriority.Camera.Value, function(dt)
         if not (self.Head and self.Head.Parent) then return end
 
@@ -180,23 +187,49 @@ function CameraHandler.Setup()
         local blurTarget = math.min(delta.Magnitude * BLUR_SCALE, BLUR_MAX)
         self.Blur.Size   = self.Blur.Size + (blurTarget - self.Blur.Size) * math.clamp(dt * BLUR_FADE_SPEED, 0, 1)
 
-        -- CoD-style body rotation — run first so relativeYaw is ready to replicate
+        -- Body rotation / Alt Look — runs before replication so relativeYaw is fresh
         local relativeYaw = 0
         local rootPart = self.Character:FindFirstChild("HumanoidRootPart")
         if rootPart then
-            local _, charYaw, _ = rootPart.CFrame:ToEulerAnglesYXZ()
-            relativeYaw = normalizeAngle(self.CameraYaw - charYaw)
+            if self.IsAltLook then
+                -- Body is frozen; camera roams freely up to ±ALT_YAW_LIMIT
+                relativeYaw = normalizeAngle(self.CameraYaw - self.LockedBodyYaw)
+                if relativeYaw > ALT_YAW_LIMIT then
+                    relativeYaw      = ALT_YAW_LIMIT
+                    self.CameraYaw   = self.LockedBodyYaw + ALT_YAW_LIMIT
+                elseif relativeYaw < -ALT_YAW_LIMIT then
+                    relativeYaw      = -ALT_YAW_LIMIT
+                    self.CameraYaw   = self.LockedBodyYaw - ALT_YAW_LIMIT
+                end
+                -- HRP is not written — body stays put
 
-            local newCharYaw = charYaw
-            if relativeYaw > BODY_ROTATE_THRESHOLD then
-                newCharYaw = self.CameraYaw - BODY_ROTATE_THRESHOLD
-            elseif relativeYaw < -BODY_ROTATE_THRESHOLD then
-                newCharYaw = self.CameraYaw + BODY_ROTATE_THRESHOLD
-            end
+            elseif self.AltLookReturning then
+                -- Smoothly pull CameraYaw back toward body forward after ALT release
+                local _, charYaw, _ = rootPart.CFrame:ToEulerAnglesYXZ()
+                local delta = normalizeAngle(charYaw - self.CameraYaw)
+                self.CameraYaw = self.CameraYaw + delta * (1 - math.exp(-ALT_RETURN * dt))
+                relativeYaw    = normalizeAngle(self.CameraYaw - charYaw)
+                if math.abs(relativeYaw) <= BODY_ROTATE_THRESHOLD then
+                    self.AltLookReturning = false
+                end
+                -- HRP not written during return either; normal chase resumes once done
 
-            if newCharYaw ~= charYaw then
-                rootPart.CFrame = CFrame.new(rootPart.Position)
-                    * CFrame.fromEulerAnglesYXZ(0, newCharYaw, 0)
+            else
+                -- Normal CoD-style body rotation
+                local _, charYaw, _ = rootPart.CFrame:ToEulerAnglesYXZ()
+                relativeYaw = normalizeAngle(self.CameraYaw - charYaw)
+
+                local newCharYaw = charYaw
+                if relativeYaw > BODY_ROTATE_THRESHOLD then
+                    newCharYaw = self.CameraYaw - BODY_ROTATE_THRESHOLD
+                elseif relativeYaw < -BODY_ROTATE_THRESHOLD then
+                    newCharYaw = self.CameraYaw + BODY_ROTATE_THRESHOLD
+                end
+
+                if newCharYaw ~= charYaw then
+                    rootPart.CFrame = CFrame.new(rootPart.Position)
+                        * CFrame.fromEulerAnglesYXZ(0, newCharYaw, 0)
+                end
             end
         end
 
@@ -228,6 +261,9 @@ function CameraHandler.Setup()
         self.RecoilPitch       = 0
         self.RecoilYaw         = 0
         self.LastPitchSendTime = 0
+        self.IsAltLook         = false
+        self.LockedBodyYaw     = nil
+        self.AltLookReturning  = false
         self.LastHeartbeat     = os.clock()
         self.SmoothHeadPos     = self.Head.Position
         self.JoltPitch         = 0
@@ -248,6 +284,21 @@ end
 --Handle Aiming out of the gun (Back to hipfire i would assume.)
 function CameraHandler:AimOut()
 
+end
+
+function CameraHandler:SetAltLook(active)
+    local hrp = self.Character and self.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    if active and not self.IsAltLook then
+        local _, charYaw, _ = hrp.CFrame:ToEulerAnglesYXZ()
+        self.LockedBodyYaw    = charYaw
+        self.IsAltLook        = true
+        self.AltLookReturning = false
+    elseif not active and self.IsAltLook then
+        self.IsAltLook        = false
+        self.AltLookReturning = true
+    end
 end
 
 return CameraHandler

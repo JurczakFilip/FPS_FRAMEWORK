@@ -87,18 +87,26 @@ local function LoadSlot(tracked)
         return
     end
 
-    local char        = tracked.Player.Character
+    local char = tracked.Player.Character
+    if not char then return end
+    local rightHand = char:FindFirstChild("RightHand")
+    if not rightHand then return end
+
+    -- Drop any leftover grip joint from the previous weapon (Part1 dangles after Destroy)
+    local stale = rightHand:FindFirstChild("[WORLD] GripMotor6D")
+    if stale then stale:Destroy() end
+
     local GripMotor6D = Instance.new("Motor6D")
     GripMotor6D.Name  = "[WORLD] GripMotor6D"
 
     tracked.WeaponModel.PrimaryPart.Anchored = false
-    GripMotor6D.Part0  = char.RightHand
+    GripMotor6D.Part0  = rightHand
     GripMotor6D.Part1  = tracked.WeaponModel.PrimaryPart
     GripMotor6D.C0     = tracked.WeaponConfig.WorldGripOffset.C0
     GripMotor6D.C1     = tracked.WeaponConfig.WorldGripOffset.C1
-    GripMotor6D.Parent = char.RightHand
+    GripMotor6D.Parent = rightHand
 
-    tracked.WeaponModel.Parent = char.RightHand
+    tracked.WeaponModel.Parent = rightHand
 
     AnimationPlayer.SetCharacter(tracked, char)
     AnimationPlayer.Play(tracked, "Idle")
@@ -154,6 +162,25 @@ Remotes:WaitForChild("Reload").OnServerEvent:Connect(function(player)
     end)
 end)
 
+-- ─── Weapon Switch ───────────────────────────────────────────────────────────
+
+Remotes:WaitForChild("SwitchWeapon").OnServerEvent:Connect(function(player, weaponName)
+    if typeof(weaponName) ~= "string" then return end
+    local tracked = PT:Search(player)
+    if not tracked then return end
+    local cfgFolder = IRNVRep:WaitForChild("WeaponConfig")
+    if not cfgFolder:FindFirstChild(weaponName) then return end
+
+    tracked.CurrentWeapon  = { WeaponName = weaponName }
+    tracked.IsAiming       = false
+    LoadSlot(tracked)
+    if tracked.WeaponConfig then
+        tracked.CurrentAmmo = tracked.WeaponConfig.MaxMag
+        tracked.ReserveAmmo = tracked.WeaponConfig.ReserveAmmo or 0
+    end
+    Remotes:WaitForChild("LoadWeapon"):FireClient(player, tracked.CurrentWeapon)
+end)
+
 -- ─── Shoot ────────────────────────────────────────────────────────────────────
 
 Remotes:WaitForChild("Shoot").OnServerEvent:Connect(function(player, direction)
@@ -202,8 +229,9 @@ end)
 -- ─── Player lifecycle ─────────────────────────────────────────────────────────
 
 Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        local tracked        = PT.Add(player)
+    player.CharacterAdded:Connect(function(char)
+        PT:Remove(player)  -- drop stale entry from previous life before adding new one
+        local tracked         = PT.Add(player)
         tracked.CurrentWeapon = tracked.Inventory[1]
         LoadSlot(tracked)
         if tracked.WeaponConfig then
@@ -212,6 +240,12 @@ Players.PlayerAdded:Connect(function(player)
         end
         Remotes:WaitForChild("LoadInventory"):FireClient(player, Framework.Test_Inventory)
         Remotes:WaitForChild("LoadWeapon"):FireClient(player, tracked.CurrentWeapon)
+
+        local humanoid = char:WaitForChild("Humanoid")
+        humanoid.Died:Connect(function()
+            AnimationPlayer.Stop(tracked)
+            tracked.WeaponModel = nil
+        end)
     end)
 end)
 

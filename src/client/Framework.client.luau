@@ -50,13 +50,11 @@ end
 
 function ToggleArmTransparency(TransparencyValue: number)
     local Character = Players.LocalPlayer.Character
-    
-    Character.LeftLowerArm.Transparency = TransparencyValue
-    Character.LeftUpperArm.Transparency = TransparencyValue
-    Character.RightLowerArm.Transparency = TransparencyValue
-    Character.RightUpperArm.Transparency = TransparencyValue
-    Character.LeftHand.Transparency = TransparencyValue
-    Character.RightHand.Transparency = TransparencyValue
+    if not Character then return end
+    for _, partName in ipairs({"LeftLowerArm", "LeftUpperArm", "RightLowerArm", "RightUpperArm", "LeftHand", "RightHand"}) do
+        local part = Character:FindFirstChild(partName)
+        if part then part.Transparency = TransparencyValue end
+    end
 end
 
 local AnimationPlayer = {
@@ -288,8 +286,8 @@ function LoadSlot(Weapon)
 
     -- Delete World view Weapon Model
     local Character = Players.LocalPlayer.Character
-    local WeaponWorldModel = Character.RightHand:FindFirstChild("[SERVER]_"..Weapon.WeaponName)
-    WeaponWorldModel:Destroy()
+    local WeaponWorldModel = Character and Character.RightHand:FindFirstChild("[SERVER]_"..Weapon.WeaponName)
+    if WeaponWorldModel then WeaponWorldModel:Destroy() end
 
     -- Load GUI
     GUIHandler.AMMO_GUI.WeaponLabel.Text  = Weapon.WeaponName
@@ -309,6 +307,7 @@ if not WhizFolder then
 end
 local ReloadRemote    = IRNVRemotes:WaitForChild("Reload")
 
+local cursorReleased    = false
 local isAiming          = false
 local adsAlpha          = 0
 local isShooting        = false
@@ -543,19 +542,24 @@ local function runBulletVisual(origin: Vector3, direction: Vector3, speed: numbe
         isModel = false
     end
 
-    if shouldWhiz then
-        local soundHost = isModel and bullet.PrimaryPart or bullet
-        if soundHost and soundHost:IsA("BasePart") then
-            attachWhizToHost(soundHost, whizCategory)
-        end
-    end
-
     local function setBulletCFrame(cf)
         if isModel then bullet:PivotTo(cf) else bullet.CFrame = cf end
     end
 
     setBulletCFrame(CFrame.lookAt(waypoints[1], waypoints[2]))
     bullet.Parent = workspace
+
+    if shouldWhiz then
+        local soundHost
+        if isModel then
+            soundHost = bullet.PrimaryPart or bullet:FindFirstChildWhichIsA("BasePart")
+        else
+            soundHost = bullet
+        end
+        if soundHost then
+            attachWhizToHost(soundHost, whizCategory)
+        end
+    end
 
     local startTime  = tick()
     local lastSegIdx = 1
@@ -666,6 +670,7 @@ end
 local function tryFire()
     local cfg = Framework.WeaponConfig
     if not cfg or isBursting or isReloading then return end
+    if CameraHandler.IsAltLook then return end
     if currentAmmo <= 0 then
         local now = tick()
         if now - lastEmptyMagSoundTime >= 0.5 then
@@ -696,6 +701,29 @@ end
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
+    if input.KeyCode == GlobalConfig.AltLook.KEY then
+        if isAiming then
+            isAiming = false
+            playSound("AimOut")
+            AnimationPlayer:PlayThen("AimOut", "Idle")
+            PT_ACTIONRemote:FireServer(1)
+        end
+        CameraHandler:SetAltLook(true)
+        return
+    end
+
+    if input.KeyCode == Enum.KeyCode.F3 then
+        cursorReleased = not cursorReleased
+        if cursorReleased then
+            UserInputService.MouseBehavior    = Enum.MouseBehavior.Default
+            UserInputService.MouseIconEnabled = true
+        else
+            UserInputService.MouseBehavior    = Enum.MouseBehavior.LockCenter
+            UserInputService.MouseIconEnabled = false
+        end
+        return
+    end
+
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         isShooting = true
         if currentFireMode == "Semi" or currentFireMode == "Burst" then
@@ -703,7 +731,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         end
 
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-        if isReloading then return end
+        if isReloading or CameraHandler.IsAltLook then return end
         isAiming = true
         playSound("AimIn")
         AnimationPlayer:PlayThen("AimIn", "Aiming")
@@ -717,6 +745,11 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == GlobalConfig.AltLook.KEY then
+        CameraHandler:SetAltLook(false)
+        return
+    end
+
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         isShooting = false
 
@@ -794,6 +827,8 @@ ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):Wa
     currentAmmo  = Framework.WeaponConfig.MaxMag
     reserveAmmo  = Framework.WeaponConfig.ReserveAmmo or 0
     isReloading  = false
+    isAiming     = false
+    isShooting   = false
     GUIHandler:UpdateAmmo(currentAmmo, reserveAmmo, Framework.WeaponConfig.MaxMag)
 
     local ikCfg = Framework.WeaponConfig.IK or {}
@@ -911,7 +946,14 @@ RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value 
 
     for _, v in pairs(Camera:GetChildren()) do
         if v:IsA("Model") and v.PrimaryPart then
-            local hipfireCF = Camera.CFrame * pushCF * GlobalConfig.VIEWMODEL_OFFSET * swayCF * bobCF * tiltCF * fallCF
+            local rotCF
+            if CameraHandler.IsAltLook and CameraHandler.LockedBodyYaw then
+                local pitch, _, roll = Camera.CFrame:ToEulerAnglesYXZ()
+                rotCF = CFrame.fromEulerAnglesYXZ(pitch, CameraHandler.LockedBodyYaw, roll)
+            else
+                rotCF = Camera.CFrame - Camera.CFrame.Position
+            end
+            local hipfireCF = (CFrame.new(Camera.CFrame.Position) * rotCF) * pushCF * GlobalConfig.VIEWMODEL_OFFSET * swayCF * bobCF * tiltCF * fallCF
 
             local finalCF = hipfireCF
             if Framework.AimPart and adsAlpha > 0 then
@@ -925,3 +967,41 @@ RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value 
         end
     end
 end)
+
+-- ─── Death / Respawn ──────────────────────────────────────────────────────────
+
+local function onCharacterDied()
+    isShooting  = false
+    isBursting  = false
+    isAiming    = false
+    isReloading = false
+    reloadToken += 1
+
+    AnimationPlayer:Stop()
+    if Framework.Viewmodel then
+        Framework.Viewmodel:Destroy()
+        Framework.Viewmodel = nil
+    end
+    Framework.WeaponConfig  = nil
+    Framework.WeaponModel   = nil
+    Framework.AimPart       = nil
+    Framework.MuzzlePart    = nil
+    Framework.MuzzleEffects = nil
+
+    recoilPitchAccum        = 0
+    recoilYawAccum          = 0
+    Camera.FieldOfView      = baseFOV
+
+    ToggleArmTransparency(0)
+    GUIHandler.AMMO_GUI.AmmoFrame.Visible = false
+end
+
+local function connectCharacterDied(char)
+    local humanoid = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid")
+    humanoid.Died:Connect(onCharacterDied)
+end
+
+if LocalPlayer.Character then
+    connectCharacterDied(LocalPlayer.Character)
+end
+LocalPlayer.CharacterAdded:Connect(connectCharacterDied)
