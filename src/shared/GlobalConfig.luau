@@ -51,6 +51,17 @@ GlobalConfig.LandingJolt = {
     TERMINAL_VELOCITY_DIVISOR = 50, -- |airVertVel| / this → normalised impact (0..1)
 }
 
+-- ─── Crouch ───────────────────────────────────────────────────────────────────
+GlobalConfig.Crouch = {
+    KEY        = Enum.KeyCode.LeftControl,
+    TOGGLE     = false,
+    WALK_SPEED = 8,
+    Animations = {
+        Idle = 131522243174622,
+        Walk = 102213736910183,
+    },
+}
+
 -- ─── Lean ─────────────────────────────────────────────────────────────────────
 GlobalConfig.LeanHandler = {
     RANGE_OF_MOTION = 75,    -- max strafe lean angle (degrees)

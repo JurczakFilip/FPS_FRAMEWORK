@@ -39,6 +39,10 @@
           "SwitchWeapon": {
             "$path": "src/shared/Remotes",
             "$className": "RemoteEvent"
+          },
+          "Crouch": {
+            "$path": "src/shared/Remotes",
+            "$className": "RemoteEvent"
           }
         }
       }

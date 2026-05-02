@@ -6,10 +6,19 @@ require(Modules:WaitForChild("CameraHandler")).Setup()
 local Test_Inventory  = require(Modules:WaitForChild("Inventory"))
 local AnimationPlayer = require(Modules:WaitForChild("AnimationPlayer"))
 local BulletSystem    = require(Modules:WaitForChild("BulletSystem"))
+local CrouchHandler   = require(Modules:WaitForChild("CrouchHandler"))
 
 local IRNVRep      = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)")
 local Remotes      = IRNVRep:WaitForChild("Remotes")
 local TracerRemote = Remotes:WaitForChild("TracerVisual")
+
+-- Create CrouchRemote if it doesn't exist yet
+if not Remotes:FindFirstChild("Crouch") then
+    local r = Instance.new("RemoteEvent")
+    r.Name   = "Crouch"
+    r.Parent = Remotes
+end
+local CrouchRemote = Remotes:WaitForChild("Crouch")
 
 local Framework = {
     Test_Inventory = Test_Inventory,
@@ -31,12 +40,13 @@ function PT.Add(player)
     self.Animator       = nil
     self.AnimationTrack = nil
     self.AnimChainToken = 0
-    self.IsAiming       = false
-    self.LastFireTime   = -math.huge
-    self.LastReloadTime = -math.huge
-    self.ShotCount      = 0
-    self.CurrentAmmo    = 0
-    self.ReserveAmmo    = 0
+    self.IsAiming        = false
+    self.LastFireTime    = -math.huge
+    self.LastReloadTime  = -math.huge
+    self.ShotCount       = 0
+    self.CurrentAmmo     = 0
+    self.ReserveAmmo     = 0
+    self.CrouchHandler   = nil
     table.insert(Framework.PT, self)
     return self
 end
@@ -241,12 +251,25 @@ Players.PlayerAdded:Connect(function(player)
         Remotes:WaitForChild("LoadInventory"):FireClient(player, Framework.Test_Inventory)
         Remotes:WaitForChild("LoadWeapon"):FireClient(player, tracked.CurrentWeapon)
 
+        tracked.CrouchHandler = CrouchHandler.Setup(char)
+
         local humanoid = char:WaitForChild("Humanoid")
         humanoid.Died:Connect(function()
             AnimationPlayer.Stop(tracked)
             tracked.WeaponModel = nil
+            if tracked.CrouchHandler then
+                tracked.CrouchHandler:Destroy()
+                tracked.CrouchHandler = nil
+            end
         end)
     end)
+end)
+
+CrouchRemote.OnServerEvent:Connect(function(player, active)
+    if typeof(active) ~= "boolean" then return end
+    local tracked = PT:Search(player)
+    if not tracked or not tracked.CrouchHandler then return end
+    tracked.CrouchHandler:SetCrouch(active)
 end)
 
 Players.PlayerRemoving:Connect(function(player)

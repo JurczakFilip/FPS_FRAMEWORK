@@ -1,0 +1,46 @@
+{
+  "name": "[IRNV_FPS] V1 — Install Package",
+  "tree": {
+    "$className": "Folder",
+
+    "README": {
+      "$path": "build/README.luau"
+    },
+
+    "[Drop into] ReplicatedStorage": {
+      "$className": "Folder",
+      "[IRNV_FPS] V1 (REP)": {
+        "$path": "src/shared",
+        "Remotes": {
+          "$path": "src/shared/Remotes",
+          "CameraHandler":   { "$path": "src/shared/Remotes", "$className": "RemoteEvent" },
+          "LoadInventory":   { "$path": "src/shared/Remotes", "$className": "RemoteEvent" },
+          "LoadWeapon":      { "$path": "src/shared/Remotes", "$className": "RemoteEvent" },
+          "PT_ACTION":       { "$path": "src/shared/Remotes", "$className": "RemoteEvent" },
+          "Shoot":           { "$path": "src/shared/Remotes", "$className": "RemoteEvent" },
+          "TracerVisual":    { "$path": "src/shared/Remotes", "$className": "RemoteEvent" },
+          "Reload":          { "$path": "src/shared/Remotes", "$className": "RemoteEvent" },
+          "SwitchWeapon":    { "$path": "src/shared/Remotes", "$className": "RemoteEvent" },
+          "Crouch":          { "$path": "src/shared/Remotes", "$className": "RemoteEvent" }
+        }
+      }
+    },
+
+    "[Drop into] ServerScriptService": {
+      "$className": "Folder",
+      "[IRNV_FPS] V1 (SERV)": {
+        "$path": "src/server"
+      }
+    },
+
+    "[Drop into] StarterPlayerScripts": {
+      "$className": "Folder",
+      "[IRNV_FPS] V1 (CLI)": {
+        "$path": "src/client",
+        "Modules": {
+          "$path": "src/client/Modules"
+        }
+      }
+    }
+  }
+}

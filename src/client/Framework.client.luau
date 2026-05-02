@@ -1,8 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local Debris = game:GetService("Debris")
+local RunService        = game:GetService("RunService")
+local Players           = game:GetService("Players")
+local UserInputService  = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -10,27 +9,41 @@ local PRELOAD_FOLDER  = Instance.new("Folder")
 PRELOAD_FOLDER.Name   = "[IRNV_FPS] Preload"
 PRELOAD_FOLDER.Parent = LocalPlayer
 
-local ANIM_FOLDER   = Instance.new("Folder")
-ANIM_FOLDER.Name    = "Animations"
-ANIM_FOLDER.Parent  = PRELOAD_FOLDER
+local ANIM_FOLDER  = Instance.new("Folder")
+ANIM_FOLDER.Name   = "Animations"
+ANIM_FOLDER.Parent = PRELOAD_FOLDER
 
 local SOUND_FOLDER  = Instance.new("Folder")
 SOUND_FOLDER.Name   = "Sounds"
 SOUND_FOLDER.Parent = PRELOAD_FOLDER
 
-local GlobalConfig = require(ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("GlobalConfig"))
+local IRNVRep       = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)")
+local GlobalConfig  = require(IRNVRep:WaitForChild("GlobalConfig"))
+local WeaponEffects = IRNVRep:WaitForChild("WeaponEffects")
 
 local Camera  = workspace.CurrentCamera
 local baseFOV = Camera.FieldOfView
 
 local Modules = {
-    CameraHandler = require(script.Parent.Modules.CameraHandler),
-    GUI_Handler   = require(script.Parent.Modules.GUI_Handler)
+    CameraHandler   = require(script.Parent.Modules.CameraHandler),
+    GUI_Handler     = require(script.Parent.Modules.GUI_Handler),
+    ArmTransparency = require(script.Parent.Modules.ArmTransparency),
+    AnimationPlayer = require(script.Parent.Modules.AnimationPlayer),
+    MuzzleEffects   = require(script.Parent.Modules.MuzzleEffects),
+    SoundSystem     = require(script.Parent.Modules.SoundSystem),
+    BulletVisual    = require(script.Parent.Modules.BulletVisual),
+    CrouchHandler   = require(script.Parent.Modules.CrouchHandler),
 }
 
 -- CameraHandler must run first — it disables AutoRotate and controls body yaw
-local CameraHandler = Modules.CameraHandler.Setup()
-local GUIHandler    = Modules.GUI_Handler.Init()
+local CameraHandler   = Modules.CameraHandler.Setup()
+local GUIHandler      = Modules.GUI_Handler.Init()
+local ArmTransparency = Modules.ArmTransparency
+local AnimationPlayer = Modules.AnimationPlayer.new(ANIM_FOLDER)
+local MuzzleEffects   = Modules.MuzzleEffects
+local SoundSystem     = Modules.SoundSystem.Init(SOUND_FOLDER, Camera, WeaponEffects)
+local BulletVisual    = Modules.BulletVisual.Init(SoundSystem)
+local CrouchHandler   = Modules.CrouchHandler.Setup()
 
 local Framework = {
     Inventory     = nil,
@@ -42,291 +55,38 @@ local Framework = {
     MuzzleEffects = nil,
 }
 
-function DebugPrint(message: string)
+local function DebugPrint(message: string)
     if GlobalConfig.Debug then
-        print("[IRNV_DEBUG]: "..message)
+        print("[IRNV_DEBUG]: " .. message)
     end
 end
 
-function ToggleArmTransparency(TransparencyValue: number)
-    local Character = Players.LocalPlayer.Character
-    if not Character then return end
-    for _, partName in ipairs({"LeftLowerArm", "LeftUpperArm", "RightLowerArm", "RightUpperArm", "LeftHand", "RightHand"}) do
-        local part = Character:FindFirstChild(partName)
-        if part then part.Transparency = TransparencyValue end
-    end
-end
-
-local AnimationPlayer = {
-    _animator   = nil,
-    _tracks     = {},
-    _track      = nil,
-    _chainToken = 0,
-    _chainConn  = nil,
-}
-
-function AnimationPlayer:Preload(viewmodel, weaponConfig)
-    self._animator = viewmodel.Humanoid.Animator
-    self._tracks   = {}
-    self._track    = nil
-    ANIM_FOLDER:ClearAllChildren()
-    for animType, animId in pairs(weaponConfig.Animations.FPS) do
-        if animId and animId ~= 0 then
-            local anim = Instance.new("Animation")
-            anim.Name        = animType
-            anim.AnimationId = "rbxassetid://" .. animId
-            anim.Parent      = ANIM_FOLDER
-            self._tracks[animType] = self._animator:LoadAnimation(anim)
-        end
-    end
-end
-
-function AnimationPlayer:Play(animType: string)
-    local track = self._tracks[animType]
-    if not track then
-        DebugPrint("AnimationPlayer: no preloaded track for '" .. animType .. "'")
-        return
-    end
-    self._chainToken += 1
-    if self._chainConn then self._chainConn:Disconnect() self._chainConn = nil end
-    if self._track and self._track ~= track then self._track:Stop() end
-    track:Stop()
-    self._track = track
-    track:Play()
-    DebugPrint("AnimationPlayer: playing '" .. animType .. "'")
-end
-
-function AnimationPlayer:PlayThen(animType: string, nextAnimType: string)
-    self:Play(animType)
-    local track = self._track
-    if not track then return end
-    track.Looped = false
-    self._chainToken += 1
-    local token = self._chainToken
-    self._chainConn = track.Stopped:Connect(function()
-        if self._chainConn then self._chainConn:Disconnect() self._chainConn = nil end
-        if self._chainToken == token then
-            self:Play(nextAnimType)
-        end
-    end)
-end
-
-function AnimationPlayer:Stop()
-    self._chainToken += 1
-    if self._chainConn then self._chainConn:Disconnect() self._chainConn = nil end
-    if self._track then
-        self._track:Stop()
-        self._track = nil
-    end
-end
-
-local MuzzleEffectsFolder = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponEffects"):WaitForChild("Visual"):WaitForChild("Muzzle")
-local MUZZLE_FLASH_DURATION = 0.05
-
-local function isToggleableEffect(inst: Instance): boolean
-    return inst:IsA("ParticleEmitter") or inst:IsA("Light") or inst:IsA("Beam") or inst:IsA("Trail")
-end
-
-local function cloneMuzzleEffectsInto(muzzlePart: BasePart?, visualName: string?)
-    if not muzzlePart or not visualName then return {} end
-    local template = MuzzleEffectsFolder:FindFirstChild(visualName)
-    if not template then
-        DebugPrint("No muzzle effects template for visual: " .. tostring(visualName))
-        return {}
-    end
-    local effects = {}
-    for _, fx in ipairs(template:GetChildren()) do
-        local clone = fx:Clone()
-        clone.Parent = muzzlePart
-        if isToggleableEffect(clone) then
-            clone.Enabled = false
-        end
-        table.insert(effects, clone)
-    end
-    return effects
-end
-
-local function flashMuzzleEffects(effects)
-    if not effects or #effects == 0 then return end
-    for _, fx in ipairs(effects) do
-        if isToggleableEffect(fx) then fx.Enabled = true end
-    end
-    task.delay(MUZZLE_FLASH_DURATION, function()
-        for _, fx in ipairs(effects) do
-            if fx.Parent and isToggleableEffect(fx) then
-                fx.Enabled = false
-            end
-        end
-    end)
-end
-
--- World-model muzzle effects for OTHER players (lazy-cloned on first observed shot).
-local _worldMuzzleCache = {}
-
-local function getOrCreateWorldMuzzleEffects(shooterChar: Model)
-    local rightHand = shooterChar and shooterChar:FindFirstChild("RightHand")
-    if not rightHand then return nil end
-
-    local worldModel
-    for _, child in ipairs(rightHand:GetChildren()) do
-        if child.Name:sub(1, 9) == "[SERVER]_" then
-            worldModel = child
-            break
-        end
-    end
-    if not worldModel then return nil end
-
-    local muzzle = worldModel:FindFirstChild("MuzzlePart", true)
-    if not muzzle then return nil end
-
-    local cached = _worldMuzzleCache[muzzle]
-    if cached then return cached end
-
-    local weaponName = worldModel.Name:sub(10) -- strip "[SERVER]_"
-    local cfgFolder  = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponConfig")
-    local cfgModule  = cfgFolder:FindFirstChild(weaponName)
-    if not cfgModule then return nil end
-
-    local ok, cfg = pcall(require, cfgModule)
-    if not ok or type(cfg) ~= "table" then return nil end
-
-    local visualName = cfg.Effects and cfg.Effects.Visual
-    if not visualName then return nil end
-
-    local effects = cloneMuzzleEffectsInto(muzzle, visualName)
-    _worldMuzzleCache[muzzle] = effects
-    muzzle.Destroying:Connect(function()
-        _worldMuzzleCache[muzzle] = nil
-    end)
-    return effects
-end
-
-function LoadSlot(Weapon)
-    --Clear Previous Use
-    if Framework.Viewmodel then
-
-        AnimationPlayer:Stop()
-        Framework.Viewmodel:Destroy()
-        Framework.Viewmodel = nil
-
-    elseif Framework.WeaponConfig then
-    
-        Framework.WeaponConfig = nil
-
-    elseif Framework.WeaponModel then
-
-        Framework.WeaponModel:Destroy()
-        Framework.WeaponModel = nil
-    
-    end
-
-    --Start of Load
-    local Viewmodel_Folder   = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Viewmodel")
-    local Config_Folder      = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponConfig")
-    local Weaponmodel_Folder = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponModels")
-
-    if Config_Folder:FindFirstChild(Weapon.WeaponName) then
-        Framework.WeaponConfig = require(Config_Folder:FindFirstChild(Weapon.WeaponName))
-        DebugPrint("Found Weapon Config!")
-    else
-        DebugPrint("Failed to locate Weapon Config.")
-    end
-
-    if Viewmodel_Folder:FindFirstChild(GlobalConfig.Viewmodel) then
-        Framework.Viewmodel = Viewmodel_Folder:FindFirstChild(GlobalConfig.Viewmodel):Clone()
-        DebugPrint("Found Viewmodel!")
-        DebugPrint("Attempting to Assign Viewmodel to Camera...")
-        Framework.Viewmodel.Parent = Camera
-        DebugPrint("Assigned Viewmodel to camera!")
-    else
-        DebugPrint("Failed to locate Viewmodel.")
-    end
-
-    if Weaponmodel_Folder:FindFirstChild(Weapon.WeaponName) then
-        Framework.WeaponModel = Weaponmodel_Folder:FindFirstChild(Weapon.WeaponName):Clone()
-        DebugPrint("Located WeaponModel and cloned!")
-
-        if not Framework.WeaponModel.PrimaryPart then
-            DebugPrint("Failed to located Weapon Model PrimaryPart.")
-        end
-    else
-        DebugPrint("Failed to located Weapon Model!")
-    end
-
-    DebugPrint("Toggling World Arm Transparency to 1. (ClientSide)")
-    ToggleArmTransparency(1)
-
-    DebugPrint("Creating GripMotor6D...")
-    local GripMotor6D = Instance.new("Motor6D")
-    GripMotor6D.Name = "[CLIENT] GripMotor6D"
-
-    Framework.WeaponModel.PrimaryPart.Anchored = false
-
-    GripMotor6D.Part0  = Framework.Viewmodel.RightArm
-    GripMotor6D.Part1  = Framework.WeaponModel.PrimaryPart
-    GripMotor6D.C0     = Framework.WeaponConfig.GripOffset.C0
-    GripMotor6D.C1     = Framework.WeaponConfig.GripOffset.C1
-    GripMotor6D.Parent = Framework.Viewmodel.RightArm
-
-    Framework.WeaponModel.Parent = Framework.Viewmodel
-    DebugPrint("Weapon attached via GripMotor6D.")
-
-    Framework.AimPart    = Framework.WeaponModel:FindFirstChild("AimPart",    true)
-    Framework.MuzzlePart = Framework.WeaponModel:FindFirstChild("MuzzlePart", true)
-    DebugPrint(Framework.AimPart    and "AimPart found."    or "No AimPart — ADS disabled.")
-    DebugPrint(Framework.MuzzlePart and "MuzzlePart found." or "No MuzzlePart — tracer starts from camera.")
-
-    local visualName = Framework.WeaponConfig.Effects and Framework.WeaponConfig.Effects.Visual
-    Framework.MuzzleEffects = cloneMuzzleEffectsInto(Framework.MuzzlePart, visualName)
-
-    AnimationPlayer:Preload(Framework.Viewmodel, Framework.WeaponConfig)
-    preloadWeaponSounds(Framework.WeaponConfig)
-    AnimationPlayer:Play("Idle")
-    initFireMode()
-
-    -- Delete World view Weapon Model
-    local Character = Players.LocalPlayer.Character
-    local WeaponWorldModel = Character and Character.RightHand:FindFirstChild("[SERVER]_"..Weapon.WeaponName)
-    if WeaponWorldModel then WeaponWorldModel:Destroy() end
-
-    -- Load GUI
-    GUIHandler.AMMO_GUI.WeaponLabel.Text  = Weapon.WeaponName
-    GUIHandler.AMMO_GUI.AmmoFrame.Visible = true
-end
-
-local IRNVRemotes     = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes")
+local IRNVRemotes     = IRNVRep:WaitForChild("Remotes")
 local ShootRemote     = IRNVRemotes:WaitForChild("Shoot")
 local PT_ACTIONRemote = IRNVRemotes:WaitForChild("PT_ACTION")
 local TracerRemote    = IRNVRemotes:WaitForChild("TracerVisual")
-local TracersFolder   = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponEffects"):WaitForChild("Visual"):WaitForChild("Tracers")
-local WeaponEffects   = ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("WeaponEffects")
-local SoundFolder     = WeaponEffects:WaitForChild("Sound", 5)
-local WhizFolder      = SoundFolder and SoundFolder:WaitForChild("Whiz", 5)
-if not WhizFolder then
-    warn("[IRNV] WeaponEffects.Sound.Whiz folder missing — whiz sounds disabled")
-end
 local ReloadRemote    = IRNVRemotes:WaitForChild("Reload")
 
-local cursorReleased    = false
-local isAiming          = false
-local adsAlpha          = 0
-local isShooting        = false
-local isBursting        = false
-local timeSinceLastShot = math.huge
-local shotCount         = 0
-local recoilPitchAccum    = 0
-local recoilYawAccum      = 0
+local cursorReleased        = false
+local isAiming              = false
+local adsAlpha              = 0
+local isShooting            = false
+local isBursting            = false
+local timeSinceLastShot     = math.huge
+local shotCount             = 0
+local recoilPitchAccum      = 0
+local recoilYawAccum        = 0
 local lastEmptyMagSoundTime = -math.huge
 
-local currentAmmo  = 0
-local reserveAmmo  = 0
-local isReloading  = false
-local reloadToken  = 0
+local currentAmmo = 0
+local reserveAmmo = 0
+local isReloading = false
+local reloadToken = 0
 
-local FIRE_MODE_ORDER = { "Semi", "Auto", "Burst" }
-local currentFireMode = "Semi"
+local FIRE_MODE_ORDER = GlobalConfig.Fire.FIRE_MODE_ORDER
+local currentFireMode = FIRE_MODE_ORDER[1]
 
-function initFireMode()
+local function initFireMode()
     if not Framework.WeaponConfig then return end
     for _, mode in ipairs(FIRE_MODE_ORDER) do
         if Framework.WeaponConfig.FireModes[mode] then
@@ -337,99 +97,6 @@ function initFireMode()
     end
 end
 
-local _soundTemplates = {}
-
-local function preloadGlobalSounds()
-    local function add(key, id)
-        if not id or id == 0 then return end
-        local sound = Instance.new("Sound")
-        sound.Name    = key
-        sound.SoundId = "rbxassetid://" .. id
-        sound.Parent  = SOUND_FOLDER
-        _soundTemplates[key] = sound
-    end
-    add("Global_FireModeSwitch", GlobalConfig.FireModeSwitchSound)
-    add("Global_EmptyMag",       GlobalConfig.EmptyMagSound)
-end
-
-function preloadWeaponSounds(cfg)
-    for key, sound in pairs(_soundTemplates) do
-        if not key:match("^Global_") then
-            sound:Destroy()
-            _soundTemplates[key] = nil
-        end
-    end
-    for soundType, soundId in pairs(cfg.Effects.Sound) do
-        if soundId and soundId ~= 0 then
-            local sound = Instance.new("Sound")
-            sound.Name    = soundType
-            sound.SoundId = "rbxassetid://" .. soundId
-            sound.Parent  = SOUND_FOLDER
-            _soundTemplates[soundType] = sound
-        end
-    end
-end
-
-local function playSound(key: string)
-    local template = _soundTemplates[key]
-    if not template then return end
-    local sound  = template:Clone()
-    sound.Parent = Camera
-    sound:Play()
-    sound.Ended:Once(function() sound:Destroy() end)
-end
-
-local function emitSpatialSound(pos: Vector3, sound: Sound)
-    local part = Instance.new("Part")
-    part.Anchored     = true
-    part.CanCollide   = false
-    part.CanQuery     = false
-    part.CanTouch     = false
-    part.Transparency = 1
-    part.Size         = Vector3.new(0.1, 0.1, 0.1)
-    part.CFrame       = CFrame.new(pos)
-    part.Parent       = workspace
-    sound.Parent = part
-    sound:Play()
-    sound.Ended:Once(function() part:Destroy() end)
-    Debris:AddItem(part, 10)  -- safety net: drop the part even if Ended never fires
-end
-
-local function play3DSoundAt(pos: Vector3, soundId: number?)
-    if not soundId or soundId == 0 then return end
-    local sound  = Instance.new("Sound")
-    sound.SoundId = "rbxassetid://" .. soundId
-    emitSpatialSound(pos, sound)
-end
-
-local function pickRandomWhizSound(category: string?): Sound?
-    if not category or not WhizFolder then return nil end
-    local pool = WhizFolder:FindFirstChild(category)
-    if not pool then
-        DebugPrint("Whiz: no pool for category '" .. tostring(category) .. "'")
-        return nil
-    end
-    local candidates = {}
-    for _, child in ipairs(pool:GetChildren()) do
-        if child:IsA("Sound") then table.insert(candidates, child) end
-    end
-    if #candidates == 0 then
-        DebugPrint("Whiz: pool '" .. category .. "' has no Sound children")
-        return nil
-    end
-    return candidates[math.random(1, #candidates)]:Clone()
-end
-
-local function attachWhizToHost(host: BasePart, category: string?)
-    local sound = pickRandomWhizSound(category)
-    if not sound then return end
-    sound.Parent = host
-    sound:Play()
-    -- Sound auto-cleans when host part is destroyed
-end
-
-preloadGlobalSounds()
-
 local function cycleFireMode()
     if not Framework.WeaponConfig then return end
     local idx = table.find(FIRE_MODE_ORDER, currentFireMode) or 1
@@ -439,183 +106,101 @@ local function cycleFireMode()
         if Framework.WeaponConfig.FireModes[nextMode] then
             currentFireMode = nextMode
             DebugPrint("Fire mode: " .. currentFireMode)
-            playSound("Global_FireModeSwitch")
+            SoundSystem:Play("Global_FireModeSwitch")
             GUIHandler:SetFireMode(nextMode)
             return
         end
     end
 end
 
--- Simulates a bullet visually: animated moving Part following the actual curved
--- (gravity-affected) trajectory. Client-local, never replicates to server.
-local BULLET_GRAVITY = Vector3.new(0, -workspace.Gravity, 0)
-local TRACER_STEP    = 0.05  -- seconds per step, matches BulletSystem
-
-local function runBulletVisual(origin: Vector3, direction: Vector3, speed: number, filterList: {Instance}, whizCategory: string?)
-    -- Pre-simulate the full path into time-stamped waypoints
-    local waypoints = { origin }
-    local times     = { 0 }
-    local pos       = origin
-    local vel       = direction.Unit * speed
-    local maxRange  = (Framework.WeaponConfig and Framework.WeaponConfig.MaxRange) or 1500
-    local traveled  = 0
-    local t         = 0
-
-    local params = RaycastParams.new()
-    params.FilterDescendantsInstances = filterList
-    params.FilterType = Enum.RaycastFilterType.Exclude
-
-    for _ = 1, 200 do
-        local newVel = vel + BULLET_GRAVITY * TRACER_STEP
-        local newPos = pos + vel * TRACER_STEP
-        t = t + TRACER_STEP
-        local result = workspace:Raycast(pos, newPos - pos, params)
-        if result then
-            table.insert(waypoints, result.Position)
-            table.insert(times, t)
-            break
-        end
-        traveled = traveled + (newPos - pos).Magnitude
-        pos = newPos
-        vel = newVel
-        table.insert(waypoints, pos)
-        table.insert(times, t)
-        if traveled >= maxRange then break end
+local function LoadSlot(Weapon)
+    if Framework.Viewmodel then
+        AnimationPlayer:Stop()
+        Framework.Viewmodel:Destroy()
+        Framework.Viewmodel = nil
     end
+    Framework.WeaponConfig = nil
+    Framework.WeaponModel  = nil
 
-    if #waypoints < 2 then return end
+    local Viewmodel_Folder   = IRNVRep:WaitForChild("Viewmodel")
+    local Config_Folder      = IRNVRep:WaitForChild("WeaponConfig")
+    local Weaponmodel_Folder = IRNVRep:WaitForChild("WeaponModels")
 
-    -- Whiz gating: does the bullet path come within WhizDistance of the local player?
-    -- (skip own bullets unless Debug mode is on, so solo testing still produces audio)
-    local localChar = LocalPlayer.Character
-    local isOwnBullet = false
-    for _, inst in ipairs(filterList) do
-        if inst == localChar then
-            isOwnBullet = true
-            break
-        end
-    end
-    local shouldWhiz = false
-    if whizCategory and localChar and (not isOwnBullet or GlobalConfig.Debug) then
-        local hrp = localChar:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            local P = hrp.Position
-            for i = 1, #waypoints - 1 do
-                local A    = waypoints[i]
-                local B    = waypoints[i + 1]
-                local AB   = B - A
-                local len2 = AB:Dot(AB)
-                local s    = len2 > 0 and math.clamp((P - A):Dot(AB) / len2, 0, 1) or 0
-                local cp   = A:Lerp(B, s)
-                if (P - cp).Magnitude <= GlobalConfig.WhizDistance then
-                    shouldWhiz = true
-                    break
-                end
-            end
-            if not shouldWhiz then DebugPrint("Whiz: bullet path never within " .. GlobalConfig.WhizDistance .. " studs") end
-        end
-    end
-
-    local visualName  = Framework.WeaponConfig and Framework.WeaponConfig.Effects and Framework.WeaponConfig.Effects.Visual
-    local tracerModel = visualName and TracersFolder:FindFirstChild(visualName)
-    if not tracerModel and not shouldWhiz then
-        DebugPrint("runBulletVisual: no tracer for '" .. tostring(visualName) .. "', no whiz needed — skipping")
-        return
-    end
-
-    local totalTime = times[#times]
-
-    -- Build bullet host. If tracer model exists, clone it; otherwise spawn an
-    -- invisible host so the whiz Sound still has a Part to ride on.
-    local bullet, isModel
-    if tracerModel then
-        bullet  = tracerModel:Clone()
-        isModel = bullet:IsA("Model")
+    if Config_Folder:FindFirstChild(Weapon.WeaponName) then
+        Framework.WeaponConfig = require(Config_Folder:FindFirstChild(Weapon.WeaponName))
+        DebugPrint("Found Weapon Config!")
     else
-        bullet = Instance.new("Part")
-        bullet.Anchored     = true
-        bullet.CanCollide   = false
-        bullet.CanQuery     = false
-        bullet.CanTouch     = false
-        bullet.Transparency = 1
-        bullet.Size         = Vector3.new(0.1, 0.1, 0.1)
-        isModel = false
+        DebugPrint("Failed to locate Weapon Config.")
     end
 
-    local function setBulletCFrame(cf)
-        if isModel then bullet:PivotTo(cf) else bullet.CFrame = cf end
+    if Viewmodel_Folder:FindFirstChild(GlobalConfig.Viewmodel) then
+        Framework.Viewmodel        = Viewmodel_Folder:FindFirstChild(GlobalConfig.Viewmodel):Clone()
+        Framework.Viewmodel.Parent = Camera
+        DebugPrint("Viewmodel assigned to camera.")
+    else
+        DebugPrint("Failed to locate Viewmodel.")
     end
 
-    setBulletCFrame(CFrame.lookAt(waypoints[1], waypoints[2]))
-    bullet.Parent = workspace
-
-    if shouldWhiz then
-        local soundHost
-        if isModel then
-            soundHost = bullet.PrimaryPart or bullet:FindFirstChildWhichIsA("BasePart")
-        else
-            soundHost = bullet
+    if Weaponmodel_Folder:FindFirstChild(Weapon.WeaponName) then
+        Framework.WeaponModel = Weaponmodel_Folder:FindFirstChild(Weapon.WeaponName):Clone()
+        DebugPrint("Located WeaponModel and cloned!")
+        if not Framework.WeaponModel.PrimaryPart then
+            DebugPrint("Failed to locate Weapon Model PrimaryPart.")
         end
-        if soundHost then
-            attachWhizToHost(soundHost, whizCategory)
-        end
+    else
+        DebugPrint("Failed to locate Weapon Model!")
     end
 
-    local startTime  = tick()
-    local lastSegIdx = 1
-    local conn
-    conn = RunService.RenderStepped:Connect(function()
-        local elapsed = tick() - startTime
-        if elapsed >= totalTime then
-            conn:Disconnect()
-            if bullet.Parent then bullet:Destroy() end
-            return
-        end
+    ArmTransparency.Set(1)
 
-        -- Advance segment index forward (never backwards — O(1) amortised)
-        while lastSegIdx < #times - 1 and times[lastSegIdx + 1] <= elapsed do
-            lastSegIdx += 1
-        end
+    local GripMotor6D  = Instance.new("Motor6D")
+    GripMotor6D.Name   = "[CLIENT] GripMotor6D"
+    GripMotor6D.Part0  = Framework.Viewmodel.RightArm
+    GripMotor6D.Part1  = Framework.WeaponModel.PrimaryPart
+    GripMotor6D.C0     = Framework.WeaponConfig.GripOffset.C0
+    GripMotor6D.C1     = Framework.WeaponConfig.GripOffset.C1
+    GripMotor6D.Parent = Framework.Viewmodel.RightArm
+    Framework.WeaponModel.PrimaryPart.Anchored = false
+    Framework.WeaponModel.Parent = Framework.Viewmodel
+    DebugPrint("Weapon attached via GripMotor6D.")
 
-        local segA = waypoints[lastSegIdx]
-        local segB = waypoints[math.min(lastSegIdx + 1, #waypoints)]
-        local tA   = times[lastSegIdx]
-        local tB   = times[math.min(lastSegIdx + 1, #times)]
-        local segT = (tB > tA) and (elapsed - tA) / (tB - tA) or 0
+    Framework.AimPart    = Framework.WeaponModel:FindFirstChild("AimPart",    true)
+    Framework.MuzzlePart = Framework.WeaponModel:FindFirstChild("MuzzlePart", true)
+    DebugPrint(Framework.AimPart    and "AimPart found."    or "No AimPart — ADS disabled.")
+    DebugPrint(Framework.MuzzlePart and "MuzzlePart found." or "No MuzzlePart — tracer starts from camera.")
 
-        local interpPos = segA:Lerp(segB, math.clamp(segT, 0, 1))
-        local lookDir   = segB - segA
-        if lookDir.Magnitude > 0.001 then
-            setBulletCFrame(CFrame.lookAt(interpPos, interpPos + lookDir))
-        end
-    end)
+    local visualName = Framework.WeaponConfig.Effects and Framework.WeaponConfig.Effects.Visual
+    Framework.MuzzleEffects = MuzzleEffects.Clone(Framework.MuzzlePart, visualName)
 
-    task.delay(totalTime + 0.5, function()
-        conn:Disconnect()
-        if bullet.Parent then bullet:Destroy() end
-    end)
+    AnimationPlayer:Preload(Framework.Viewmodel, Framework.WeaponConfig)
+    SoundSystem:PreloadWeapon(Framework.WeaponConfig)
+    AnimationPlayer:Play("Idle")
+    initFireMode()
+
+    local Character  = Players.LocalPlayer.Character
+    local RightHand  = Character and Character:FindFirstChild("RightHand")
+    local WorldModel = RightHand and RightHand:FindFirstChild("[SERVER]_" .. Weapon.WeaponName)
+    if WorldModel then WorldModel:Destroy() end
+
+    GUIHandler.AMMO_GUI.WeaponLabel.Text  = Weapon.WeaponName
+    GUIHandler.AMMO_GUI.AmmoFrame.Visible = true
 end
 
--- Other players' bullets: exclude the shooter's character so the bullet
--- doesn't immediately hit their own head at the origin point
 TracerRemote.OnClientEvent:Connect(function(origin: Vector3, direction: Vector3, speed: number, shooterChar, whizCategory: string?, shootSoundId: number?)
     local filter = shooterChar and { shooterChar } or {}
-    play3DSoundAt(origin, shootSoundId)
-    runBulletVisual(origin, direction, speed, filter, whizCategory)
-    flashMuzzleEffects(getOrCreateWorldMuzzleEffects(shooterChar))
+    SoundSystem:Play3DAt(origin, shootSoundId)
+    BulletVisual.Run(origin, direction, speed, filter, whizCategory)
+    MuzzleEffects.Flash(MuzzleEffects.GetOrCreateForChar(shooterChar))
 end)
 
 local function reload()
     local cfg = Framework.WeaponConfig
-    if not cfg then return end
-    if isReloading then return end
-    if reserveAmmo <= 0 then return end
-    if currentAmmo >= cfg.MaxMag then return end
+    if not cfg or isReloading or reserveAmmo <= 0 or currentAmmo >= cfg.MaxMag then return end
 
     isReloading  = true
     reloadToken += 1
     local token  = reloadToken
-    playSound("Reload")
+    SoundSystem:Play("Reload")
     AnimationPlayer:PlayThen("Reload", isAiming and "Aiming" or "Idle")
     ReloadRemote:FireServer()
 
@@ -632,8 +217,7 @@ end
 
 local function fireSingleShot()
     local cfg = Framework.WeaponConfig
-    if not cfg then return end
-    if currentAmmo <= 0 then return end
+    if not cfg or currentAmmo <= 0 then return end
 
     local patternIdx = math.min(shotCount + 1, #cfg.Recoil.Pattern)
     local patMul     = cfg.Recoil.Pattern[patternIdx]
@@ -648,21 +232,28 @@ local function fireSingleShot()
     recoilYawAccum    = recoilYawAccum   + hRad
     shotCount         = shotCount + 1
     timeSinceLastShot = 0
-    currentAmmo -= 1
+    currentAmmo      -= 1
     GUIHandler:UpdateAmmo(currentAmmo, reserveAmmo, cfg.MaxMag)
-    flashMuzzleEffects(Framework.MuzzleEffects)
+    MuzzleEffects.Flash(Framework.MuzzleEffects)
 
     local dir       = Camera.CFrame.LookVector
     local char      = Players.LocalPlayer.Character
     local muzzlePos = Framework.MuzzlePart and Framework.MuzzlePart.CFrame.Position
         or Camera.CFrame.Position
 
-    -- Filter: own character + Camera (which holds the viewmodel & weapon model)
     local filter = { Camera }
     if char then table.insert(filter, char) end
-    runBulletVisual(muzzlePos, dir, (cfg.MuzzleVelocity.X + cfg.MuzzleVelocity.Y) / 2, filter, cfg.Effects and cfg.Effects.WhizCategory)
 
-    playSound("Shoot")
+    BulletVisual.Run(
+        muzzlePos, dir,
+        (cfg.MuzzleVelocity.X + cfg.MuzzleVelocity.Y) / 2,
+        filter,
+        cfg.Effects and cfg.Effects.WhizCategory,
+        cfg.Effects and cfg.Effects.Visual,
+        cfg.MaxRange
+    )
+
+    SoundSystem:Play("Shoot")
     ShootRemote:FireServer(dir)
     AnimationPlayer:PlayThen("Shoot", isAiming and "Aiming" or "Idle")
 end
@@ -673,8 +264,8 @@ local function tryFire()
     if CameraHandler.IsAltLook then return end
     if currentAmmo <= 0 then
         local now = tick()
-        if now - lastEmptyMagSoundTime >= 0.5 then
-            playSound("Global_EmptyMag")
+        if now - lastEmptyMagSoundTime >= GlobalConfig.Fire.EMPTY_MAG_DEBOUNCE then
+            SoundSystem:Play("Global_EmptyMag")
             lastEmptyMagSoundTime = now
         end
         return
@@ -684,7 +275,7 @@ local function tryFire()
     if timeSinceLastShot < minInterval then return end
 
     if currentFireMode == "Burst" then
-        local burstCount = cfg.BurstCount or 3
+        local burstCount = cfg.BurstCount or GlobalConfig.Fire.DEFAULT_BURST_COUNT
         isBursting = true
         task.spawn(function()
             for i = 1, burstCount do
@@ -701,10 +292,19 @@ end
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
+    if input.KeyCode == GlobalConfig.Crouch.KEY then
+        if GlobalConfig.Crouch.TOGGLE then
+            CrouchHandler:SetCrouch(not CrouchHandler.IsCrouching)
+        else
+            CrouchHandler:SetCrouch(true)
+        end
+        return
+    end
+
     if input.KeyCode == GlobalConfig.AltLook.KEY then
         if isAiming then
             isAiming = false
-            playSound("AimOut")
+            SoundSystem:Play("AimOut")
             AnimationPlayer:PlayThen("AimOut", "Idle")
             PT_ACTIONRemote:FireServer(1)
         end
@@ -729,14 +329,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if currentFireMode == "Semi" or currentFireMode == "Burst" then
             tryFire()
         end
-
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
         if isReloading or CameraHandler.IsAltLook then return end
         isAiming = true
-        playSound("AimIn")
+        SoundSystem:Play("AimIn")
         AnimationPlayer:PlayThen("AimIn", "Aiming")
         PT_ACTIONRemote:FireServer(2)
-
     elseif input.KeyCode == Enum.KeyCode.M then
         cycleFireMode()
     elseif input.KeyCode == Enum.KeyCode.R then
@@ -745,6 +343,11 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == GlobalConfig.Crouch.KEY and not GlobalConfig.Crouch.TOGGLE then
+        CrouchHandler:SetCrouch(false)
+        return
+    end
+
     if input.KeyCode == GlobalConfig.AltLook.KEY then
         CameraHandler:SetAltLook(false)
         return
@@ -752,29 +355,28 @@ UserInputService.InputEnded:Connect(function(input)
 
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         isShooting = false
-
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
         if isReloading then return end
         isAiming = false
-        playSound("AimOut")
+        SoundSystem:Play("AimOut")
         AnimationPlayer:PlayThen("AimOut", "Idle")
         PT_ACTIONRemote:FireServer(1)
     end
 end)
 
-local lagRot      = nil -- trails camera rotation for sway
+local lagRot      = nil
 local SWAY_SPEED  = 0
 local ROLL_SCALE  = 0
 local PITCH_SCALE = 0
 
-local BOB_FREQ       = 0     -- stride rate at full walkspeed (rad/sec)
-local BOB_AMPLITUDE  = 0  -- max bob offset in studs
-local BOB_FADE       = 0     -- how fast bob fades in/out on start/stop
+local BOB_FREQ       = 0
+local BOB_AMPLITUDE  = 0
+local BOB_FADE       = 0
 local bobClock       = 0
 local smoothMoveFact = 0
 
-local TILT_AMOUNT    = 0 -- barrel-up / stock-down pitch at full backward speed
-local TILT_FADE      = 0        -- lerp speed for tilt in/out
+local TILT_AMOUNT    = 0
+local TILT_FADE      = 0
 local smoothBackTilt = 0
 
 local FALL_TILT      = 0
@@ -795,72 +397,70 @@ local IK_ENABLED    = false
 local IK_CHECK_DIST = 0
 local IK_MAX_PUSH   = 0
 local IK_MAX_ANGLE  = 0
-local IK_LERP_SPEED = 12
+local IK_LERP_SPEED = GlobalConfig.IK.FALLBACK_LERP_SPEED
 local ikPushFactor  = 0
 local ikParams      = RaycastParams.new()
 ikParams.FilterType = Enum.RaycastFilterType.Exclude
 
--- Load Inv
-ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):WaitForChild("LoadInventory").OnClientEvent:Connect(function(Inventory)
+IRNVRemotes:WaitForChild("LoadInventory").OnClientEvent:Connect(function(Inventory)
     Framework.Inventory = Inventory
 end)
 
-ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)"):WaitForChild("Remotes"):WaitForChild("LoadWeapon").OnClientEvent:Connect(function(Weapon)
+IRNVRemotes:WaitForChild("LoadWeapon").OnClientEvent:Connect(function(Weapon)
     LoadSlot(Weapon)
 
-    TILT_AMOUNT    = Framework.WeaponConfig.TILT_AMOUNT -- barrel-up / stock-down pitch at full backward speed
-    TILT_FADE      = Framework.WeaponConfig.TILT_FADE   
-    BOB_FREQ       = Framework.WeaponConfig.BOB_FREQ     -- stride rate at full walkspeed (rad/sec)
-    BOB_AMPLITUDE  = Framework.WeaponConfig.BOB_AMPLITUDE  -- max bob offset in studs
-    BOB_FADE       = Framework.WeaponConfig.BOB_FADE
-    SWAY_SPEED     = Framework.WeaponConfig.SWAY_SPEED
-    ROLL_SCALE     = Framework.WeaponConfig.ROLL_SCALE
-    PITCH_SCALE    = Framework.WeaponConfig.PITCH_SCALE
-    FALL_TILT      = Framework.WeaponConfig.FALL_TILT
-    FALL_STIFFNESS = Framework.WeaponConfig.FALL_STIFFNESS
-    FALL_DAMPING   = Framework.WeaponConfig.FALL_DAMPING
-    LAND_KICK      = Framework.WeaponConfig.LAND_KICK
-    LAND_STIFFNESS = Framework.WeaponConfig.LAND_STIFFNESS
-    LAND_DAMPING   = Framework.WeaponConfig.LAND_DAMPING
+    local cfg      = Framework.WeaponConfig
+    TILT_AMOUNT    = cfg.TILT_AMOUNT
+    TILT_FADE      = cfg.TILT_FADE
+    BOB_FREQ       = cfg.BOB_FREQ
+    BOB_AMPLITUDE  = cfg.BOB_AMPLITUDE
+    BOB_FADE       = cfg.BOB_FADE
+    SWAY_SPEED     = cfg.SWAY_SPEED
+    ROLL_SCALE     = cfg.ROLL_SCALE
+    PITCH_SCALE    = cfg.PITCH_SCALE
+    FALL_TILT      = cfg.FALL_TILT
+    FALL_STIFFNESS = cfg.FALL_STIFFNESS
+    FALL_DAMPING   = cfg.FALL_DAMPING
+    LAND_KICK      = cfg.LAND_KICK
+    LAND_STIFFNESS = cfg.LAND_STIFFNESS
+    LAND_DAMPING   = cfg.LAND_DAMPING
 
     reloadToken += 1
-    currentAmmo  = Framework.WeaponConfig.MaxMag
-    reserveAmmo  = Framework.WeaponConfig.ReserveAmmo or 0
+    currentAmmo  = cfg.MaxMag
+    reserveAmmo  = cfg.ReserveAmmo or 0
     isReloading  = false
     isAiming     = false
     isShooting   = false
-    GUIHandler:UpdateAmmo(currentAmmo, reserveAmmo, Framework.WeaponConfig.MaxMag)
+    GUIHandler:UpdateAmmo(currentAmmo, reserveAmmo, cfg.MaxMag)
 
-    local ikCfg = Framework.WeaponConfig.IK or {}
-    IK_ENABLED    = ikCfg.Enabled    == true
-    IK_CHECK_DIST = ikCfg.CheckDist  or 0
-    IK_MAX_PUSH   = ikCfg.MaxPush    or 0
-    IK_MAX_ANGLE  = ikCfg.MaxAngle   or 0
-    IK_LERP_SPEED = ikCfg.LerpSpeed  or 12
+    local ikCfg   = cfg.IK or {}
+    IK_ENABLED    = ikCfg.Enabled   == true
+    IK_CHECK_DIST = ikCfg.CheckDist or 0
+    IK_MAX_PUSH   = ikCfg.MaxPush   or 0
+    IK_MAX_ANGLE  = ikCfg.MaxAngle  or 0
+    IK_LERP_SPEED = ikCfg.LerpSpeed or GlobalConfig.IK.FALLBACK_LERP_SPEED
     ikPushFactor  = 0
 end)
 
 -- Run after Roblox's Camera/Character pass so our LocalTransparencyModifier reset
 -- overrides the engine's first-person auto-hide on Camera descendants.
 RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value + 1, function(dt)
-    -- Shooting: advance timer, auto-fire if held
     timeSinceLastShot = timeSinceLastShot + dt
     local cfg = Framework.WeaponConfig
     if isShooting and currentFireMode == "Auto" then
         tryFire()
     end
 
-    -- Recoil recovery: starts after a brief pause, exponentially returns to 0
-    if timeSinceLastShot > 0.12 and (recoilPitchAccum ~= 0 or recoilYawAccum ~= 0) then
-        local recoverySpeed = cfg and cfg.Recoil.Recovery or 8
+    if timeSinceLastShot > GlobalConfig.Recoil.RECOVERY_DELAY and (recoilPitchAccum ~= 0 or recoilYawAccum ~= 0) then
+        local recoverySpeed = cfg and cfg.Recoil.Recovery or GlobalConfig.Recoil.FALLBACK_RECOVERY
         local pitchRec = recoilPitchAccum * (1 - math.exp(-recoverySpeed * dt))
         local yawRec   = recoilYawAccum   * (1 - math.exp(-recoverySpeed * dt))
         CameraHandler.RecoilPitch = CameraHandler.RecoilPitch + pitchRec
         CameraHandler.RecoilYaw   = CameraHandler.RecoilYaw   - yawRec
         recoilPitchAccum = recoilPitchAccum - pitchRec
         recoilYawAccum   = recoilYawAccum   - yawRec
-        if timeSinceLastShot > 1.5 then
-            shotCount = 0  -- reset pattern after sustained idle
+        if timeSinceLastShot > GlobalConfig.Recoil.PATTERN_RESET_IDLE then
+            shotCount = 0
         end
     end
 
@@ -873,7 +473,6 @@ RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value 
     local rx, ry, _  = swayOffset:ToEulerAnglesYXZ()
     local swayCF     = CFrame.Angles(rx * PITCH_SCALE, 0, -ry * ROLL_SCALE)
 
-    -- Movement state shared by bob + backward tilt
     local char        = Players.LocalPlayer.Character
     local hrp         = char and char:FindFirstChild("HumanoidRootPart")
     local humanoid    = char and char:FindFirstChildOfClass("Humanoid")
@@ -884,7 +483,6 @@ RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value 
         camLocalVel = Camera.CFrame:VectorToObjectSpace(hrp.AssemblyLinearVelocity)
     end
 
-    -- Bob: sine on X (sway) + double-freq on Y (steps), scaled by horizontal speed
     local horizMag   = (camLocalVel * Vector3.new(1, 0, 1)).Magnitude
     local targetFact = grounded and math.clamp(horizMag / walkSpd, 0, 1) or 0
     smoothMoveFact = smoothMoveFact + (targetFact - smoothMoveFact) * (1 - math.exp(-BOB_FADE * dt))
@@ -894,22 +492,18 @@ RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value 
     local bobY = math.sin(bobClock * 2) * BOB_AMPLITUDE * smoothMoveFact
     local bobCF = CFrame.new(bobX, bobY, 0)
 
-    -- Backward tilt: camera-local +Z is behind the player, so any backward velocity
-    -- component (straight back, back-left, back-right) tilts the gun's muzzle up.
     local targetBack = grounded and math.clamp(camLocalVel.Z / walkSpd, 0, 1) or 0
     smoothBackTilt = smoothBackTilt + (targetBack - smoothBackTilt) * (1 - math.exp(-TILT_FADE * dt))
     local tiltCF = CFrame.Angles(-smoothBackTilt * TILT_AMOUNT, 0, 0)
 
-    -- Fall spring: drives toward target angle based on downward velocity
     local vertVel    = hrp and hrp.AssemblyLinearVelocity.Y or 0
-    local fallTarget = grounded and 0 or math.clamp(-vertVel / 50, 0, 1) * FALL_TILT
+    local fallTarget = grounded and 0 or math.clamp(-vertVel / GlobalConfig.ViewmodelSprings.FALL_TERMINAL_DIVISOR, 0, 1) * FALL_TILT
     local fallAcc    = -FALL_STIFFNESS * (fallSpringPos - fallTarget) - FALL_DAMPING * fallSpringVel
     fallSpringVel    = fallSpringVel + fallAcc * dt
     fallSpringPos    = fallSpringPos + fallSpringVel * dt
 
-    -- Landing spring: velocity kick on touchdown, spring returns to 0
     if prevGrounded == false and grounded then
-        local impactMag = math.clamp(-airVertVel / 50, 0, 1)
+        local impactMag = math.clamp(-airVertVel / GlobalConfig.ViewmodelSprings.LAND_TERMINAL_DIVISOR, 0, 1)
         landSpringVel   = landSpringVel + impactMag * LAND_KICK
     end
     if not grounded then airVertVel = vertVel end
@@ -920,13 +514,11 @@ RunService:BindToRenderStep("ViewmodelUpdate", Enum.RenderPriority.Camera.Value 
 
     local fallCF = CFrame.Angles(fallSpringPos + landSpringPos, 0, 0)
 
-    -- ADS alpha + FOV
     local adsTarget = isAiming and 1 or 0
-    local adsSpeed  = Framework.WeaponConfig and (1 / math.max(Framework.WeaponConfig.AimSpeed, 0.01)) or 6
+    local adsSpeed  = Framework.WeaponConfig and (1 / math.max(Framework.WeaponConfig.AimSpeed, 0.01)) or GlobalConfig.ADS.FALLBACK_SPEED
     adsAlpha = adsAlpha + (adsTarget - adsAlpha) * (1 - math.exp(-adsSpeed * dt))
-    Camera.FieldOfView = baseFOV - adsAlpha * 25
+    Camera.FieldOfView = baseFOV - adsAlpha * GlobalConfig.ADS.FOV_REDUCTION
 
-    -- IK wall pushback
     local ikTarget = 0
     if IK_ENABLED and IK_CHECK_DIST > 0 then
         local ikChar = Players.LocalPlayer.Character
@@ -988,11 +580,11 @@ local function onCharacterDied()
     Framework.MuzzlePart    = nil
     Framework.MuzzleEffects = nil
 
-    recoilPitchAccum        = 0
-    recoilYawAccum          = 0
-    Camera.FieldOfView      = baseFOV
+    recoilPitchAccum   = 0
+    recoilYawAccum     = 0
+    Camera.FieldOfView = baseFOV
 
-    ToggleArmTransparency(0)
+    ArmTransparency.Set(0)
     GUIHandler.AMMO_GUI.AmmoFrame.Visible = false
 end
 

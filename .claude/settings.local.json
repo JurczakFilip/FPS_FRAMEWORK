@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command \"\\(Get-Content 'src/client/Framework.client.luau'\\).Count\")",
+      "Bash(ls build *)",
+      "Bash(mkdir build *)",
+      "Bash(rojo build *)"
+    ]
+  }
+}
