@@ -1,7 +1,7 @@
 local GlobalConfig = {}
 
 -- ─── Debug & Misc ─────────────────────────────────────────────────────────────
-GlobalConfig.Debug            = true
+GlobalConfig.Debug            = false
 GlobalConfig.Viewmodel        = "Desert"
 GlobalConfig.VIEWMODEL_OFFSET = CFrame.new(0, 0, 1)
 
