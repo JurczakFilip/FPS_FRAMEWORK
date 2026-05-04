@@ -151,7 +151,8 @@ local function LoadSlot(Weapon)
         DebugPrint("Failed to locate Weapon Model!")
     end
 
-    ArmTransparency.Set(1)
+    local Character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+    ArmTransparency.Set(1, Character)
 
     local GripMotor6D  = Instance.new("Motor6D")
     GripMotor6D.Name   = "[CLIENT] GripMotor6D"
@@ -177,8 +178,7 @@ local function LoadSlot(Weapon)
     AnimationPlayer:Play("Idle")
     initFireMode()
 
-    local Character  = Players.LocalPlayer.Character
-    local RightHand  = Character and Character:FindFirstChild("RightHand")
+    local RightHand  = Character:WaitForChild("RightHand", 2)
     local WorldModel = RightHand and RightHand:FindFirstChild("[SERVER]_" .. Weapon.WeaponName)
     if WorldModel then WorldModel:Destroy() end
 
@@ -200,9 +200,18 @@ local function reload()
     isReloading  = true
     reloadToken += 1
     local token  = reloadToken
-    SoundSystem:Play("Reload")
-    AnimationPlayer:PlayThen("Reload", isAiming and "Aiming" or "Idle")
     ReloadRemote:FireServer()
+
+    if isAiming then
+        isAiming = false
+        SoundSystem:Play("AimOut")
+        PT_ACTIONRemote:FireServer(1)
+        SoundSystem:Play("Reload")
+        AnimationPlayer:PlayChain({"AimOut", "Reload", "Idle"})
+    else
+        SoundSystem:Play("Reload")
+        AnimationPlayer:PlayThen("Reload", "Idle")
+    end
 
     task.delay(cfg.ReloadTime, function()
         if reloadToken ~= token then return end

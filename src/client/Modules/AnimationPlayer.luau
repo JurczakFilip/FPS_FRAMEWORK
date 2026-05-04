@@ -66,6 +66,25 @@ function AnimationPlayer:PlayThen(animType: string, nextAnimType: string)
     end)
 end
 
+function AnimationPlayer:PlayChain(animTypes: {string})
+    if #animTypes == 0 then return end
+    self:Play(animTypes[1])
+    if #animTypes == 1 then return end
+    local track = self._track
+    if not track then return end
+    track.Looped = false
+    self._chainToken += 1
+    local token = self._chainToken
+    local rest = {}
+    for i = 2, #animTypes do rest[i - 1] = animTypes[i] end
+    self._chainConn = track.Stopped:Connect(function()
+        if self._chainConn then self._chainConn:Disconnect() self._chainConn = nil end
+        if self._chainToken == token then
+            self:PlayChain(rest)
+        end
+    end)
+end
+
 function AnimationPlayer:Stop()
     self._chainToken += 1
     if self._chainConn then self._chainConn:Disconnect() self._chainConn = nil end

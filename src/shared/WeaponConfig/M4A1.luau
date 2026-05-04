@@ -7,13 +7,13 @@ Config.MuzzleVelocity = Vector2.new(300, 410)     -- m/s
 Config.Accuracy       = Vector2.new(2, 4)         -- MOA
 
 Config.GripOffset = {
-    C0 = CFrame.new(0, 1.5, 0) * CFrame.Angles(0, 0, math.rad(-90)),
-    C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0)
+    C0 = CFrame.new(0, 1.5, 0) * CFrame.fromEulerAnglesYXZ(math.rad(0), math.rad(0), math.rad(-90)),
+    C1 = CFrame.new(0,0,0) * CFrame.fromEulerAnglesYXZ(math.rad(0),math.rad(0),math.rad(0))
 }
 
 Config.WorldGripOffset = {
-    C0 = CFrame.new(0, 0.35, 0) * CFrame.Angles(0, math.rad(-90), math.rad(90)),
-    C1 = CFrame.new(0,0,0) * CFrame.Angles(0,0,0)
+    C0 = CFrame.new(0, 0.35, 0) * CFrame.fromEulerAnglesYXZ(math.rad(0), math.rad(-90), math.rad(90)),
+    C1 = CFrame.new(0,0,0) * CFrame.fromEulerAnglesYXZ(math.rad(0),math.rad(0),math.rad(0))
 }
 
 --// Recoil (degrees)

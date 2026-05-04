@@ -5,12 +5,14 @@ local GlobalConfig = require(ReplicatedStorage:WaitForChild("[IRNV_FPS] V1 (REP)
 
 local ArmTransparency = {}
 
-function ArmTransparency.Set(value: number)
-    local character = Players.LocalPlayer.Character
+function ArmTransparency.Set(value: number, character: Model?)
+    character = character or Players.LocalPlayer.Character
     if not character then return end
     for _, partName in ipairs(GlobalConfig.ArmParts) do
-        local part = character:FindFirstChild(partName)
-        if part then part.Transparency = value end
+        local part = character:FindFirstChild(partName) or character:WaitForChild(partName, 2)
+        if part and part:IsA("BasePart") then
+            part.Transparency = value
+        end
     end
 end
 

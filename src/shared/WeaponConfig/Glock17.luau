@@ -7,13 +7,13 @@ Config.MuzzleVelocity = Vector2.new(360, 380)     -- m/s (9×19mm, 114 mm barrel
 Config.Accuracy       = Vector2.new(4, 7)         -- MOA (open sights, shorter sight radius than rifle)
 
 Config.GripOffset = {
-    C0 = CFrame.new(0.25, 1.9, 0) * CFrame.fromEulerAnglesYXZ(math.rad(90), math.rad(90), 0),
-    C1 = CFrame.new(0, 0, 0)      * CFrame.Angles(0, 0, 0)
+    C0 = CFrame.new(0.25, 1.9, 0) * CFrame.fromEulerAnglesYXZ(math.rad(90), math.rad(90), math.rad(0)),
+    C1 = CFrame.new(0, 0, 0)      * CFrame.fromEulerAnglesYXZ(math.rad(0), math.rad(0), math.rad(0))
 }
 
 Config.WorldGripOffset = {
-    C0 = CFrame.new(0, 0.35, 0) * CFrame.Angles(0, math.rad(-90), math.rad(90)),
-    C1 = CFrame.new(0, 0, 0)    * CFrame.Angles(0, 0, 0)
+    C0 = CFrame.new(0, 0.35, 0) * CFrame.fromEulerAnglesYXZ(math.rad(0), math.rad(-90), math.rad(90)),
+    C1 = CFrame.new(0, 0, 0)    * CFrame.fromEulerAnglesYXZ(math.rad(0), math.rad(0), math.rad(0))
 }
 
 --// Recoil (degrees)
